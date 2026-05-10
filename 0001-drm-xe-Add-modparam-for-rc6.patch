@@ -1,0 +1,116 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: okhsunrog <d3g3v3@gmail.com>
+Date: Sat, 10 May 2026 00:00:00 +0000
+Subject: [PATCH] drm/xe: Add modparam for rc6
+
+Add an "enable_rc6" module parameter to the xe driver, mirroring the
+behaviour of the i915 enable_rc6 modparam. When set to 0, both the
+direct MMIO RC6 enable path used when GuC PC is skipped, and the
+GuC-firmware-controlled RC6 path, are skipped. Default is enabled (1).
+
+Useful for debugging GPU power management issues and for hardware where
+RC6 misbehaves.
+
+Signed-off-by: okhsunrog <d3g3v3@gmail.com>
+---
+ drivers/gpu/drm/xe/xe_gt_idle.c | 8 ++++++++
+ drivers/gpu/drm/xe/xe_guc_pc.c  | 9 +++++++++
+ drivers/gpu/drm/xe/xe_module.c  | 7 +++++++
+ drivers/gpu/drm/xe/xe_module.h  | 1 +
+ 4 files changed, 25 insertions(+)
+
+diff --git a/drivers/gpu/drm/xe/xe_gt_idle.c b/drivers/gpu/drm/xe/xe_gt_idle.c
+--- a/drivers/gpu/drm/xe/xe_gt_idle.c
++++ b/drivers/gpu/drm/xe/xe_gt_idle.c
+@@ -15,6 +15,7 @@
+ #include "regs/xe_gt_regs.h"
+ #include "xe_macros.h"
+ #include "xe_mmio.h"
++#include "xe_module.h"
+ #include "xe_pm.h"
+ #include "xe_sriov.h"
+ #include "xe_wa.h"
+@@ -395,6 +396,13 @@ void xe_gt_idle_enable_c6(struct xe_gt *gt)
+ 	if (IS_SRIOV_VF(gt_to_xe(gt)))
+ 		return;
+
++	if (!xe_modparam.enable_rc6) {
++		/* Make sure RC6 stays disabled. */
++		xe_mmio_write32(&gt->mmio, RC_CONTROL, 0);
++		xe_mmio_write32(&gt->mmio, RC_STATE, 0);
++		return;
++	}
++
+ 	/* Units of 1280 ns for a total of 5s */
+ 	xe_mmio_write32(&gt->mmio, RC_IDLE_HYSTERSIS, 0x3B9ACA);
+ 	/* Enable RC6 */
+diff --git a/drivers/gpu/drm/xe/xe_guc_pc.c b/drivers/gpu/drm/xe/xe_guc_pc.c
+--- a/drivers/gpu/drm/xe/xe_guc_pc.c
++++ b/drivers/gpu/drm/xe/xe_guc_pc.c
+@@ -27,6 +27,7 @@
+ #include "xe_guc_ct.h"
+ #include "xe_map.h"
+ #include "xe_mmio.h"
++#include "xe_module.h"
+ #include "xe_pcode.h"
+ #include "xe_pm.h"
+ #include "xe_sriov.h"
+@@ -1336,6 +1337,14 @@ int xe_guc_pc_start(struct xe_guc_pc *pc)
+ 		goto out;
+ 	}
+
++	if (!xe_modparam.enable_rc6) {
++		/*
++		 * Take RC6 control back from GuC and leave it disabled.
++		 */
++		ret = xe_guc_pc_gucrc_disable(pc);
++		goto out;
++	}
++
+ 	ret = pc_action_setup_gucrc(pc, GUCRC_FIRMWARE_CONTROL);
+ 	if (ret)
+ 		goto out;
+diff --git a/drivers/gpu/drm/xe/xe_module.c b/drivers/gpu/drm/xe/xe_module.c
+--- a/drivers/gpu/drm/xe/xe_module.c
++++ b/drivers/gpu/drm/xe/xe_module.c
+@@ -30,6 +30,7 @@
+ #define DEFAULT_MAX_VFS_STR		"unlimited"
+ #define DEFAULT_WEDGED_MODE		1
+ #define DEFAULT_SVM_NOTIFIER_SIZE	512
++#define DEFAULT_ENABLE_RC6		true
+
+ struct xe_modparam xe_modparam = {
+ 	.probe_display =	DEFAULT_PROBE_DISPLAY,
+@@ -40,6 +41,7 @@ struct xe_modparam xe_modparam = {
+ #endif
+ 	.wedged_mode =		DEFAULT_WEDGED_MODE,
+ 	.svm_notifier_size =	DEFAULT_SVM_NOTIFIER_SIZE,
++	.enable_rc6 =		DEFAULT_ENABLE_RC6,
+ 	/* the rest are 0 by default */
+ };
+
+@@ -93,6 +95,11 @@ MODULE_PARM_DESC(wedged_mode,
+ 		 "Module's default policy for the wedged mode (0=never, 1=upon-critical-errors, 2=upon-any-hang "
+ 		 "[default=" __stringify(DEFAULT_WEDGED_MODE) "])");
+
++module_param_named_unsafe(enable_rc6, xe_modparam.enable_rc6, bool, 0400);
++MODULE_PARM_DESC(enable_rc6,
++		 "Enable RC6 power saving (1=enable, 0=disable) "
++		 "[default=" __stringify(DEFAULT_ENABLE_RC6) "])");
++
+ static int xe_check_nomodeset(void)
+ {
+ 	if (drm_firmware_drivers_only())
+diff --git a/drivers/gpu/drm/xe/xe_module.h b/drivers/gpu/drm/xe/xe_module.h
+--- a/drivers/gpu/drm/xe/xe_module.h
++++ b/drivers/gpu/drm/xe/xe_module.h
+@@ -22,6 +22,7 @@ struct xe_modparam {
+ 	unsigned int max_vfs;
+ #endif
+ 	unsigned int wedged_mode;
++	bool enable_rc6;
+ 	u32 svm_notifier_size;
+ };
+
+--
+2.47.0

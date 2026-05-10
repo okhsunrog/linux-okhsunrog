@@ -1,0 +1,20 @@
+# makepkg build dirs
+src/
+pkg/
+
+# downloaded/cloned sources
+*.tar.gz
+*.tar.xz
+*.tar.zst
+zfs/
+upstream/
+
+# build artifacts
+*.pkg.tar.zst
+*.pkg.tar.zst.sig
+*.log
+.SRCINFO
+
+# generated configs (PKGBUILD writes config-<pkgver>-<pkgrel>-<suffix> after build)
+# our committed baseline is plain `config` (no dash) — keep that, ignore the rest
+config-*
