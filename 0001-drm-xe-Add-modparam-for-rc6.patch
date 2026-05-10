@@ -55,21 +55,19 @@ diff --git a/drivers/gpu/drm/xe/xe_guc_pc.c b/drivers/gpu/drm/xe/xe_guc_pc.c
  #include "xe_pcode.h"
  #include "xe_pm.h"
  #include "xe_sriov.h"
-@@ -1336,6 +1337,14 @@ int xe_guc_pc_start(struct xe_guc_pc *pc)
- 		goto out;
+@@ -1295,6 +1296,11 @@ int xe_guc_pc_start(struct xe_guc_pc *pc)
+ 		xe_guc_pc_gucrc_disable(pc);
+ 		return 0;
  	}
 
 +	if (!xe_modparam.enable_rc6) {
-+		/*
-+		 * Take RC6 control back from GuC and leave it disabled.
-+		 */
-+		ret = xe_guc_pc_gucrc_disable(pc);
-+		goto out;
++		/* Take RC6 control back from GuC and leave it disabled. */
++		return xe_guc_pc_gucrc_disable(pc);
 +	}
 +
  	ret = pc_action_setup_gucrc(pc, GUCRC_FIRMWARE_CONTROL);
  	if (ret)
- 		goto out;
+ 		return ret;
 diff --git a/drivers/gpu/drm/xe/xe_module.c b/drivers/gpu/drm/xe/xe_module.c
 --- a/drivers/gpu/drm/xe/xe_module.c
 +++ b/drivers/gpu/drm/xe/xe_module.c
