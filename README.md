@@ -1,6 +1,6 @@
 # linux-okhsunrog
 
-**Experimental** mainline Arch Linux kernel — fork of [`linux-cachyos`](https://aur.archlinux.org/packages/linux-cachyos) tracking 7.0.x, with two extra patches and a newer ZFS staged for built-in.
+**Experimental** mainline Arch Linux kernel — fork of [`linux-cachyos`](https://aur.archlinux.org/packages/linux-cachyos) tracking 7.0.x, with two extra patches and a newer ZFS shipped as a module subpackage.
 
 Sister package: [`linux-okhsunrog-lts`](https://github.com/okhsunrog/linux-okhsunrog-lts) — same idea but on the 6.18 LTS line and stable ZFS 2.4.1.
 
