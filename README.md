@@ -12,14 +12,14 @@ The mainline branch additionally lets us:
 
 - Try newer GuC firmware behavior on a more recent kernel
 - Pick up unrelated upstream fixes faster
-- Test ZFS 2.4.2-staging on root before it hits a tagged release
+- Run the freshly tagged ZFS 2.4.2 release on root
 
 ## What's on top of upstream
 
 - `0001-drm-i915-Add-modparam-for-rc6.patch` — the i915 patch posted by Vinay Belgaumkar @ Intel ([patchwork](https://patchwork.freedesktop.org/patch/666117/))
 - `0001-drm-xe-Add-modparam-for-rc6.patch` — same idea ported to `xe`. Applies cleanly to the **7.0.x** xe layout (still using `xe_guc_pc.c`; the post-7.0 decoupling into `xe_guc_rc.c` will need a different version of this patch when bumping to 7.1+).
 - `_build_zfs=yes` defaulted on
-- ZFS source switched from CachyOS's pinned `cachyos/zfs` (2.4.1) to **`tonyhutter/zfs` `zfs-2.4.2-staging`** branch, pinned to commit `ea3171f0` (tag `zfs-2.4.2`). Reports `Linux-Maximum: 7.0` in META, so 7.0.x is in range.
+- ZFS source switched from CachyOS's pinned `cachyos/zfs` (2.4.1) to **`openzfs/zfs`** release `zfs-2.4.2`, pinned to commit `6330a45b`. Reports `Linux-Maximum: 7.0` in META, so 7.0.x is in range.
 - `pkgbase` renamed to `linux-okhsunrog` so it doesn't collide with the upstream AUR package
 - `b2sums` block moved up under `source=()` so conditional `b2sums+=('SKIP')` for optional sources isn't clobbered by a later overwrite
 

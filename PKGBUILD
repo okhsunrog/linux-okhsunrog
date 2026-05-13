@@ -7,8 +7,8 @@
 # Personal mainline kernel (experimental):
 #   - CachyOS patch stack (BORE/Cachy sauce) on mainline 7.0.x
 #   - i915/xe RC6 modparam patches (workaround for MTL GPU hang, fdo#14469)
-#   - ZFS built-in from tonyhutter/zfs zfs-2.4.2-staging branch
-#     (pinned to commit ea3171f0 — "Tag zfs-2.4.2")
+#   - ZFS from openzfs/zfs release zfs-2.4.2
+#     (pinned to commit 6330a45b — tag "zfs-2.4.2")
 # Contributor: Jan Alexander Steffens (heftig) <jan.steffens@gmail.com>
 # Contributor: Tobias Powalowski <tpowa@archlinux.org>
 # Contributor: Thomas Baechler <thomas@archlinux.org>
@@ -183,14 +183,14 @@ fi
 
 pkgbase="linux-$_pkgsuffix"
 _major=7.0
-_minor=5
+_minor=6
 #_minorc=$((_minor+1))
 #_rcver=rc8
 pkgver=${_major}.${_minor}
 _tagrel=1
 pkgrel=1
 _srcname=cachyos-${_major}.${_minor}-${_tagrel}
-pkgdesc="okhsunrog's personal mainline kernel (experimental): CachyOS base 7.0.x + i915/xe RC6 modparam patches for MTL GPU hang workaround + ZFS 2.4.2 built-in (tonyhutter staging)"
+pkgdesc="okhsunrog's personal mainline kernel (experimental): CachyOS base 7.0.x + i915/xe RC6 modparam patches for MTL GPU hang workaround + ZFS 2.4.2 (openzfs release)"
 _kernver="$pkgver-$pkgrel"
 _kernuname="${pkgver}-${_pkgsuffix}"
 arch=('x86_64')
@@ -233,7 +233,7 @@ source=(
 # add their own b2sums+=('SKIP') so the array stays in sync.
 # (Upstream cachyos PKGBUILD declares b2sums at bottom which clobbers any
 # conditional appends — moved here to fix.)
-b2sums=('6e3de2016468abfaacb4f02968118cb9e5ef4c897c9db92a72f10a5212b3080c57fcc881127dc954fa68a09442d1941f232e61ec9593924cffd39ca0be7e726d'
+b2sums=('e445d619ed6474c1a8b9ce6a80daf92644e34df247ff41c56289e19fc4a69299622f8a24d217b2aace838c9c096483824178208321b97b9372906d036ff93d39'
         'SKIP'
         '84023166d86e51210e9fa2f99c3cce243ceade0a6b3d53041ce0ee72a91371af9732ad6701c4ccfa631680eef222536ad873d0f01ca4207bdb6e8b4f38af4043'
         '3310af5580a6b007e92c9c6020bd0f2b8e9ce0544eac9e56e1b840d5445b2dbdcd04b5f0d7ab84f7d9a353dda6a860465e6c04105d91c069795bd4d3f546233a')
@@ -259,8 +259,8 @@ fi
 # ZFS support
 if [ "$_build_zfs" = "yes" ]; then
     makedepends+=(git)
-    # tonyhutter/zfs zfs-2.4.2-staging branch, pinned to commit "Tag zfs-2.4.2"
-    source+=("git+https://github.com/tonyhutter/zfs.git#commit=ea3171f0020a4500adadbce0e7eabff8a332ebf5")
+    # openzfs/zfs release zfs-2.4.2, pinned to the tagged commit
+    source+=("git+https://github.com/openzfs/zfs.git#commit=6330a45b06d20125de679aae5f63ba14082671ef")
     b2sums+=('SKIP')
 fi
 

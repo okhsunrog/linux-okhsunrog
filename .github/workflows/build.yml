@@ -1,0 +1,81 @@
+name: build kernel
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+      options: --privileged
+    timeout-minutes: 350
+
+    steps:
+      - name: Free up disk space on the host
+        run: |
+          # ubuntu-latest gives ~14GB free; kernel + zfs + thin-LTO needs more.
+          # Inside the arch container we can't touch the host FS; this step is a no-op
+          # placeholder kept for clarity. If we OOM on disk, switch to a self-hosted runner
+          # or use jlumbroso/free-disk-space before starting the container.
+          df -h
+
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git sudo ccache \
+            bc binutils cpio gettext glibc libelf libgcc openssl pahole perl python \
+            rust rust-bindgen rust-src tar xxhash xz zlib zstd \
+            clang llvm lld
+
+      - uses: actions/checkout@v4
+
+      - name: Set up unprivileged build user
+        run: |
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: /home/builder/.ccache
+          key: ccache-${{ runner.os }}-${{ hashFiles('PKGBUILD','config') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
+
+      - name: Configure ccache
+        run: |
+          mkdir -p /home/builder/.ccache
+          chown -R builder:builder /home/builder/.ccache
+          sudo -u builder ccache -M 5G
+          sudo -u builder ccache -z
+
+      - name: Build kernel packages
+        run: |
+          sudo -u builder env \
+            CI=1 \
+            CCACHE_DIR=/home/builder/.ccache \
+            PATH=/usr/lib/ccache/bin:$PATH \
+            _use_llvm_lto=thin \
+            _processor_opt=generic_v3 \
+            makepkg -s --noconfirm --noprogressbar
+
+      - name: ccache stats
+        if: always()
+        run: sudo -u builder ccache -s
+
+      - name: Upload packages
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-okhsunrog-pkgs
+          path: '*.pkg.tar.zst'
+          if-no-files-found: error
+          retention-days: 14

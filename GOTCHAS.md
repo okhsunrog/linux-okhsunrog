@@ -46,15 +46,15 @@ _use_llvm_lto=no makepkg -s
 
 Note that `_pkgsuffix` won't change to `-gcc` unless you also set `_use_gcc_suffix=yes` (default is `no` in upstream non-LTS — different from LTS variant).
 
-## 5. tonyhutter ZFS is staging, not release
+## 5. ZFS is pinned to a tagged release commit
 
-Pinned to `ea3171f0` (tag `zfs-2.4.2`) on `zfs-2.4.2-staging` branch. This is **pre-release** code maintained by Tony Hutter (LLNL, OpenZFS team) but not blessed as a stable OpenZFS release. Risks:
+Pinned to `6330a45b` (`openzfs/zfs` tag `zfs-2.4.2`). This is a real OpenZFS release, but it is brand new — `.0`/`.1`/`.2` minor bumps still surface regressions in the wild. Risks:
 
 - New behavior may surprise (slow imports, unexpected log spam, etc.)
 - If something breaks ZFS root, recovery requires alternative kernel/initramfs with working ZFS
 - **Always keep `linux-okhsunrog-lts` (or stock `linux-lts` + `zfs-dkms`) installed as a bootable fallback**
 
-When tonyhutter pushes new commits, decide deliberately whether to bump the pin — `git+...zfs.git#commit=...` ensures reproducible builds, but you'll only get fixes when you explicitly bump. Track with: `git log --oneline ea3171f0..origin/zfs-2.4.2-staging`.
+We pin to a specific commit (not a tag/branch) for reproducible builds. Bump deliberately when openzfs tags `zfs-2.4.3` etc. — `git+...zfs.git#commit=...` ensures you only pick up fixes when you explicitly move the pin. Track with: `git log --oneline 6330a45b..origin/zfs-2.4-release`.
 
 ## 6. Mainline 7.0 will EOL fast
 
