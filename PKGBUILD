@@ -89,9 +89,12 @@
 : "${_hugepage:=always}"
 
 # CPU compiler optimizations - Defaults to native if left empty
-# - "native" (use compiler autodetection)
-# - "zen4" (Use znver4 compiler optimizations)
-# - "generic" (kernel's default - to share the package between machines with different CPU µarch as long as they are x86-64)
+# - "native"      (use compiler autodetection; tied to the build host's CPU)
+# - "meteorlake"  (explicit Intel Meteor Lake march/mtune; reproducible across build hosts,
+#                  including CI runners — codegen is identical to a local native build on MTL)
+# - "zen4"        (Use znver4 compiler optimizations)
+# - "generic_v[1-4]" (kernel's default - share the package across machines as long as they
+#                  satisfy the chosen x86-64 ISA tier)
 : "${_processor_opt:=}"
 
 # Clang LTO mode, only available with the "llvm" compiler - options are "none", "full" or "thin".
@@ -165,11 +168,6 @@
 # ATTENTION: Do not modify after this line
 _is_lto_kernel() {
     [[ "$_use_llvm_lto" = "thin" || "$_use_llvm_lto" = "full"  || "$_use_llvm_lto" = "thin-dist" ]]
-    return $?
-}
-
-_is_ci_build() {
-    [[ -n "$CI" || -n "$GITHUB_RUN_ID" ]]
     return $?
 }
 
@@ -351,6 +349,14 @@ prepare() {
                 --set-val X86_64_VERSION "${MARCH//GENERIC_V}";;
             ZEN4) scripts/config -d GENERIC_CPU -e MZEN4 -d X86_NATIVE_CPU;;
             NATIVE) scripts/config -d GENERIC_CPU -d MZEN4 -e X86_NATIVE_CPU;;
+            METEORLAKE)
+                # Disable kernel-provided march options; we inject our own KCFLAGS
+                # so codegen is identical whether you build on the target host or
+                # in CI on a different CPU.
+                scripts/config -e GENERIC_CPU -d MZEN4 -d X86_NATIVE_CPU \
+                    --set-val X86_64_VERSION 3
+                BUILD_FLAGS+=(KCFLAGS="-march=meteorlake -mtune=meteorlake")
+                ;;
         esac
     else
         scripts/config -d GENERIC_CPU -d MZEN4 -e X86_NATIVE_CPU
@@ -445,17 +451,6 @@ prepare() {
         echo "Enabling KBUILD_CFLAGS -O3..."
         scripts/config -d CC_OPTIMIZE_FOR_PERFORMANCE \
             -e CC_OPTIMIZE_FOR_PERFORMANCE_O3
-    fi
-
-    ### CI-only stuff
-    if _is_ci_build; then
-        echo "Detected build inside CI"
-
-        scripts/config \
-            -d CC_OPTIMIZE_FOR_PERFORMANCE_O3 \
-            -e CC_OPTIMIZE_FOR_SIZE \
-            -d DEBUG_KERNEL \
-            -e DEBUG_INFO_REDUCED
     fi
 
     ### Enable bbr3
@@ -575,9 +570,7 @@ build() {
     cd "$_srcname"
     make "${BUILD_FLAGS[@]}" -j"$(nproc)" all
 
-    if ! _is_ci_build; then
-        make -C tools/bpf/bpftool vmlinux.h feature-clang-bpf-co-re=1
-    fi
+    make -C tools/bpf/bpftool vmlinux.h feature-clang-bpf-co-re=1
 
     local MODULE_FLAGS=(
        KERNEL_UNAME="${_kernuname}"
@@ -675,9 +668,7 @@ _package-headers() {
     install -Dt "$builddir" -m644 .config Makefile Module.symvers System.map \
         localversion.* version vmlinux
 
-    if ! _is_ci_build; then
-        install -Dt "$builddir" -m644 tools/bpf/bpftool/vmlinux.h
-    fi
+    install -Dt "$builddir" -m644 tools/bpf/bpftool/vmlinux.h
 
     install -Dt "$builddir/kernel" -m644 kernel/Makefile
     install -Dt "$builddir/arch/x86" -m644 arch/x86/Makefile

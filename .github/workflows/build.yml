@@ -58,13 +58,16 @@ jobs:
           sudo -u builder ccache -z
 
       - name: Build kernel packages
+        # NOTE: _processor_opt=meteorlake injects -march=meteorlake -mtune=meteorlake
+        # via KCFLAGS so the kernel is tuned for the *target* CPU (the dev's MTL laptop),
+        # not for whichever runner happens to host this job. Identical to a local
+        # _processor_opt=native build on a Meteor Lake host.
         run: |
           sudo -u builder env \
-            CI=1 \
             CCACHE_DIR=/home/builder/.ccache \
             PATH=/usr/lib/ccache/bin:$PATH \
             _use_llvm_lto=thin \
-            _processor_opt=generic_v3 \
+            _processor_opt=meteorlake \
             makepkg -s --noconfirm --noprogressbar
 
       - name: ccache stats
