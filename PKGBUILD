@@ -225,7 +225,8 @@ source=(
     "https://github.com/CachyOS/linux/releases/download/${_srcname}/${_srcname}.tar.gz"
     "config"
     "0001-drm-i915-Add-modparam-for-rc6.patch"
-    "0001-drm-xe-Add-modparam-for-rc6.patch")
+    "0001-drm-xe-Add-modparam-for-rc6.patch"
+    "0001-drm-ttm-add-missing-ttm_resource_del_bulk_move_unevictable.patch")
 
 # b2sums for the static source[] above. Conditional source+= blocks below
 # add their own b2sums+=('SKIP') so the array stays in sync.
@@ -234,7 +235,8 @@ source=(
 b2sums=('72162fbcc9e1698841e44a4cbdd61c2908cc282de6581f87ac43ffd42467f4608dfd76493472baa104b317892a7f810ebb1fb6f13dcc966b44292dc93ef7b577'
         'SKIP'
         '84023166d86e51210e9fa2f99c3cce243ceade0a6b3d53041ce0ee72a91371af9732ad6701c4ccfa631680eef222536ad873d0f01ca4207bdb6e8b4f38af4043'
-        '3310af5580a6b007e92c9c6020bd0f2b8e9ce0544eac9e56e1b840d5445b2dbdcd04b5f0d7ab84f7d9a353dda6a860465e6c04105d91c069795bd4d3f546233a')
+        '3310af5580a6b007e92c9c6020bd0f2b8e9ce0544eac9e56e1b840d5445b2dbdcd04b5f0d7ab84f7d9a353dda6a860465e6c04105d91c069795bd4d3f546233a'
+        'SKIP')
 
 # LLVM makedepends
 if _is_lto_kernel; then

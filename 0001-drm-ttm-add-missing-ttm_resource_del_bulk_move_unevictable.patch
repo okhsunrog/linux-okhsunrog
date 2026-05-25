@@ -1,0 +1,35 @@
+From: okhsunrog <me@okhsunrog.ru>
+Subject: [PATCH] drm/ttm: add missing ttm_resource_del_bulk_move_unevictable() definition
+
+CachyOS 7.0.10-1 cherry-picked commit 1d59f36e95f7 ("drm/ttm: Fix
+ttm_bo_shrink() infinite LRU walk on backup failure") which calls
+ttm_resource_del_bulk_move_unevictable(), but the function definition
+was not included. Add it.
+
+Unlike ttm_resource_del_bulk_move() which skips unevictable resources,
+this variant unconditionally removes the resource from its bulk_move,
+for use after a resource has become unevictable (e.g. after successful
+backup/swap).
+
+Signed-off-by: okhsunrog <me@okhsunrog.ru>
+---
+ drivers/gpu/drm/ttm/ttm_resource.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+--- a/drivers/gpu/drm/ttm/ttm_resource.c
++++ b/drivers/gpu/drm/ttm/ttm_resource.c
+@@ -293,6 +293,14 @@ void ttm_resource_del_bulk_move(struct t
+ 		ttm_lru_bulk_move_del(bo->bulk_move, res);
+ }
+
++/* Remove the resource from a bulk move unconditionally (for unevictable resources) */
++void ttm_resource_del_bulk_move_unevictable(struct ttm_resource *res,
++					    struct ttm_buffer_object *bo)
++{
++	if (bo->bulk_move)
++		ttm_lru_bulk_move_del(bo->bulk_move, res);
++}
++
+ /* Move a resource to the LRU or bulk tail */
+ void ttm_resource_move_to_lru_tail(struct ttm_resource *res)
+ {
