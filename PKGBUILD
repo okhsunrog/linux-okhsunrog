@@ -181,7 +181,7 @@ fi
 
 pkgbase="linux-$_pkgsuffix"
 _major=7.0
-_minor=6
+_minor=10
 #_minorc=$((_minor+1))
 #_rcver=rc8
 pkgver=${_major}.${_minor}
@@ -231,7 +231,7 @@ source=(
 # add their own b2sums+=('SKIP') so the array stays in sync.
 # (Upstream cachyos PKGBUILD declares b2sums at bottom which clobbers any
 # conditional appends — moved here to fix.)
-b2sums=('e445d619ed6474c1a8b9ce6a80daf92644e34df247ff41c56289e19fc4a69299622f8a24d217b2aace838c9c096483824178208321b97b9372906d036ff93d39'
+b2sums=('72162fbcc9e1698841e44a4cbdd61c2908cc282de6581f87ac43ffd42467f4608dfd76493472baa104b317892a7f810ebb1fb6f13dcc966b44292dc93ef7b577'
         'SKIP'
         '84023166d86e51210e9fa2f99c3cce243ceade0a6b3d53041ce0ee72a91371af9732ad6701c4ccfa631680eef222536ad873d0f01ca4207bdb6e8b4f38af4043'
         '3310af5580a6b007e92c9c6020bd0f2b8e9ce0544eac9e56e1b840d5445b2dbdcd04b5f0d7ab84f7d9a353dda6a860465e6c04105d91c069795bd4d3f546233a')
