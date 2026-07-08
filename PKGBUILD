@@ -589,7 +589,7 @@ build() {
     if [ "$_build_zfs" = "yes" ]; then
         cd ${srcdir}/"zfs"
 
-        local CONFIGURE_FLAGS=()
+        local CONFIGURE_FLAGS=(--enable-linux-experimental)
         [ "$_use_llvm_lto" != "none" ] && CONFIGURE_FLAGS+=("KERNEL_LLVM=1")
 
         ./autogen.sh
