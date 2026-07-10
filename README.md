@@ -2,7 +2,7 @@
 
 **Experimental** mainline Arch Linux kernel — fork of [`linux-cachyos`](https://aur.archlinux.org/packages/linux-cachyos) tracking 7.1.x, with two extra patches and a newer ZFS shipped as a module subpackage.
 
-Sister package: [`linux-okhsunrog-lts`](https://github.com/okhsunrog/linux-okhsunrog-lts) — same idea but on the 6.18 LTS line and stable ZFS 2.4.1.
+Sister package: [`linux-okhsunrog-lts`](https://github.com/okhsunrog/linux-okhsunrog-lts) — same idea but on the 6.18 LTS line and ZFS 2.4.3.
 
 ## Why
 
@@ -12,14 +12,14 @@ The mainline branch additionally lets us:
 
 - Try newer GuC firmware behavior on a more recent kernel
 - Pick up unrelated upstream fixes faster
-- Run the freshly tagged ZFS 2.4.2 release on root
+- Run ZFS 2.4.3 on root
 
 ## What's on top of upstream
 
 - `0001-drm-i915-Add-modparam-for-rc6.patch` — the i915 patch posted by Vinay Belgaumkar @ Intel ([patchwork](https://patchwork.freedesktop.org/patch/666117/))
 - `0001-drm-xe-Add-modparam-for-rc6.patch` — same idea ported to `xe`. Rebased for the **7.1.x** xe layout: the GuC RC6 control (`pc_action_setup_gucrc()` and friends) moved out of `xe_guc_pc.c` into the new `xe_guc_rc.c` file (`xe_guc_rc_enable()`/`xe_guc_rc_disable()`), and the `DEFAULT_*` macros moved from `xe_module.c` into `xe_defaults.h`. The modparam check now lives in `xe_guc_rc_enable()`.
 - `_build_zfs=yes` defaulted on
-- ZFS source switched from CachyOS's pinned `cachyos/zfs` (2.4.1) to **`openzfs/zfs`** release `zfs-2.4.2`, pinned to commit `6330a45b`. META still reports `Linux-Maximum: 7.0`, but the pinned commit already carries the backported Linux 7.1 dentry `d_alias` compat fix (openzfs `c18e8ba87`/backport `65b4a5c55`), so 7.1.x is in range too.
+- ZFS source is **`cachyos/zfs`** at commit `c681af76`: upstream `zfs-2.4.3` plus CachyOS's `Linux-Maximum: 7.1` metadata update. The commit is pinned for reproducible builds and shared with the LTS kernel recipe.
 - `pkgbase` renamed to `linux-okhsunrog` so it doesn't collide with the upstream AUR package
 - `b2sums` block moved up under `source=()` so conditional `b2sums+=('SKIP')` for optional sources isn't clobbered by a later overwrite
 
@@ -39,7 +39,7 @@ After installing, add `xe.enable_rc6=0` (or `i915.enable_rc6=0` if you switch ba
 
 ## Status / health warning
 
-This is **experimental** — mainline 7.1.x, not LTS. ZFS is **staging**, not released. Use it as a test mule, not your only kernel. If you boot it as your daily driver, keep `linux-okhsunrog-lts` (or stock `linux-lts`) installed as a fallback bootable kernel.
+This is **experimental** — mainline 7.1.x, not LTS. Use it as a test mule, not your only kernel. If you boot it as your daily driver, keep `linux-okhsunrog-lts` (or stock `linux-lts`) installed as a fallback bootable kernel.
 
 ## Updating from upstream
 

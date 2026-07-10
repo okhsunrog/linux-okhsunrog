@@ -7,9 +7,9 @@
 # Personal mainline kernel (experimental):
 #   - CachyOS patch stack (BORE/Cachy sauce) on mainline 7.1.x
 #   - i915/xe RC6 modparam patches (workaround for MTL GPU hang, fdo#14469)
-#   - ZFS from openzfs/zfs release zfs-2.4.2
-#     (pinned to commit 6330a45b — tag "zfs-2.4.2"; already carries the
-#     backported Linux 7.1 dentry d_alias compat fix)
+#   - ZFS 2.4.3 from cachyos/zfs
+#     (upstream zfs-2.4.3 plus the Linux-Maximum 7.1 metadata update,
+#     pinned to commit c681af76 for reproducible builds)
 # Contributor: Jan Alexander Steffens (heftig) <jan.steffens@gmail.com>
 # Contributor: Tobias Powalowski <tpowa@archlinux.org>
 # Contributor: Thomas Baechler <thomas@archlinux.org>
@@ -187,9 +187,11 @@ _minor=3
 #_rcver=rc8
 pkgver=${_major}.${_minor}
 _tagrel=1
-pkgrel=1
+pkgrel=2
+_zfsver=2.4.3
+_zfscommit=c681af76c5a6a15caada25eb13090e41218c7831
 _srcname=cachyos-${_major}.${_minor}-${_tagrel}
-pkgdesc="okhsunrog's personal mainline kernel (experimental): CachyOS base 7.1.x + i915/xe RC6 modparam patches for MTL GPU hang workaround + ZFS 2.4.2 (openzfs release)"
+pkgdesc="okhsunrog's personal mainline kernel (experimental): CachyOS base 7.1.x + i915/xe RC6 modparam patches for MTL GPU hang workaround + ZFS ${_zfsver}"
 _kernver="$pkgver-$pkgrel"
 _kernuname="${pkgver}-${_pkgsuffix}"
 arch=('x86_64')
@@ -258,8 +260,8 @@ fi
 # ZFS support
 if [ "$_build_zfs" = "yes" ]; then
     makedepends+=(git)
-    # openzfs/zfs release zfs-2.4.2, pinned to the tagged commit
-    source+=("git+https://github.com/openzfs/zfs.git#commit=6330a45b06d20125de679aae5f63ba14082671ef")
+    # Upstream zfs-2.4.3 plus the Linux-Maximum 7.1 metadata update.
+    source+=("git+https://github.com/cachyos/zfs.git#commit=${_zfscommit}")
     b2sums+=('SKIP')
 fi
 
@@ -589,7 +591,7 @@ build() {
     if [ "$_build_zfs" = "yes" ]; then
         cd ${srcdir}/"zfs"
 
-        local CONFIGURE_FLAGS=(--enable-linux-experimental)
+        local CONFIGURE_FLAGS=()
         [ "$_use_llvm_lto" != "none" ] && CONFIGURE_FLAGS+=("KERNEL_LLVM=1")
 
         ./autogen.sh
@@ -771,8 +773,8 @@ _package-dbg(){
 
 _package-zfs(){
     pkgdesc="zfs module for the $pkgdesc kernel"
-    depends=('pahole' "${pkgbase}=${_kernver}")
-    provides=('ZFS-MODULE')
+    depends=('pahole' "${pkgbase}=${_kernver}" "zfs-utils=${_zfsver}")
+    provides=("ZFS-MODULE=${_zfsver}")
     license=('CDDL')
 
     cd "$_srcname"

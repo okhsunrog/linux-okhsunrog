@@ -48,13 +48,13 @@ Note that `_pkgsuffix` won't change to `-gcc` unless you also set `_use_gcc_suff
 
 ## 5. ZFS is pinned to a tagged release commit
 
-Pinned to `6330a45b` (`openzfs/zfs` tag `zfs-2.4.2`). This is a real OpenZFS release, but it is brand new — `.0`/`.1`/`.2` minor bumps still surface regressions in the wild. Risks:
+Pinned to `c681af76` in `cachyos/zfs`: upstream tag `zfs-2.4.3` plus CachyOS's metadata update declaring `Linux-Maximum: 7.1`. This keeps the mainline and LTS recipes on the same ZFS source. Minor releases can still surface regressions in the wild. Risks:
 
 - New behavior may surprise (slow imports, unexpected log spam, etc.)
 - If something breaks ZFS root, recovery requires alternative kernel/initramfs with working ZFS
 - **Always keep `linux-okhsunrog-lts` (or stock `linux-lts` + `zfs-dkms`) installed as a bootable fallback**
 
-We pin to a specific commit (not a tag/branch) for reproducible builds. Bump deliberately when openzfs tags `zfs-2.4.3` etc. — `git+...zfs.git#commit=...` ensures you only pick up fixes when you explicitly move the pin. Track with: `git log --oneline 6330a45b..origin/zfs-2.4-release`.
+We pin to a specific commit (not a tag/branch) for reproducible builds. Bump `_zfsver` and `_zfscommit` deliberately for later OpenZFS releases; `git+...zfs.git#commit=...` ensures fixes are only picked up explicitly. The ZFS module package has a matching versioned dependency on `zfs-utils`, preventing pacman from silently accepting a userland/kmod release mismatch.
 
 ## 6. Mainline 7.0 will EOL fast
 
