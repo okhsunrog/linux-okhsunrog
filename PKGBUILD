@@ -212,7 +212,7 @@ _minor=3
 #_rcver=rc8
 pkgver=${_major}.${_minor}
 _tagrel=1
-pkgrel=3
+pkgrel=3.1
 _zfsver=2.4.3
 _zfscommit=c681af76c5a6a15caada25eb13090e41218c7831
 _srcname=cachyos-${_major}.${_minor}-${_tagrel}
@@ -440,12 +440,14 @@ prepare() {
 
     echo "Selecting '$_use_llvm_lto' LLVM level..."
 
-    # Daily-driver Rust module development profile. Keep runtime assertions and
-    # heavyweight test/debug facilities for the separate QEMU development build.
-    scripts/config -e RUST -e RUST_OVERFLOW_CHECKS -d RUST_DEBUG_ASSERTIONS \
+    # QEMU Rust development profile: enable assertions, KUnit doctests and a
+    # loadable reference module while leaving expensive sanitizers opt-in.
+    scripts/config -e RUST -e RUST_OVERFLOW_CHECKS -e RUST_DEBUG_ASSERTIONS \
         -e MODULES -e MODULE_UNLOAD -d MODVERSIONS \
         -e DEBUG_INFO_DWARF5 -e DEBUG_INFO_BTF -e DEBUG_INFO_BTF_MODULES -e GDB_SCRIPTS \
-        -d KUNIT -d SAMPLES -d KASAN -d KCSAN -d UBSAN -d PROVE_LOCKING
+        -e KUNIT -e RUST_KERNEL_DOCTESTS \
+        -e SAMPLES -e SAMPLES_RUST -m SAMPLE_RUST_MINIMAL \
+        -d KASAN -d KCSAN -d UBSAN -d PROVE_LOCKING
 
     if ! _is_lto_kernel; then
         echo "Enabling QR Code Panic for non-LTO kernels"
@@ -581,7 +583,8 @@ prepare() {
 
     local required_config
     for required_config in CONFIG_RUST=y CONFIG_LTO_NONE=y CONFIG_DEBUG_INFO_BTF=y \
-        CONFIG_DEBUG_INFO_BTF_MODULES=y; do
+        CONFIG_DEBUG_INFO_BTF_MODULES=y CONFIG_RUST_DEBUG_ASSERTIONS=y CONFIG_KUNIT=y \
+        CONFIG_RUST_KERNEL_DOCTESTS=y CONFIG_SAMPLES_RUST=y CONFIG_SAMPLE_RUST_MINIMAL=m; do
         grep -qx "$required_config" .config ||
             _die "Required Rust development setting was disabled: $required_config"
     done
