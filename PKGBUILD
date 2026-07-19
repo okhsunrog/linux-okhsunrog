@@ -98,13 +98,17 @@
 #                  satisfy the chosen x86-64 ISA tier)
 : "${_processor_opt:=}"
 
+# Compiler used for C/assembly parts of the kernel - options are "llvm" or "gcc".
+# Rust code is always compiled by rustc; LLVM is the best-supported Rust-for-Linux setup.
+: "${_compiler:=llvm}"
+
 # Clang LTO mode, only available with the "llvm" compiler - options are "none", "full" or "thin".
 # ATTENTION - one of three predefined values should be selected!
 # "full: uses 1 thread for Linking, slow and uses more memory, theoretically with the highest performance gains."
 # "thin: uses multiple threads, faster and uses less memory, may have a lower runtime performance than Full."
 # "thin-dist: Similar to thin, but uses a distributed model rather than in-process: https://discourse.llvm.org/t/rfc-distributed-thinlto-build-for-kernel/85934"
 # "none: disable LTO
-: "${_use_llvm_lto:=thin}"
+: "${_use_llvm_lto:=none}"
 
 # Use suffix -lto only when requested by the user
 # yes - enable -lto suffix
@@ -172,9 +176,14 @@ _is_lto_kernel() {
     return $?
 }
 
+_is_llvm_kernel() {
+    [[ "$_compiler" = "llvm" ]]
+    return $?
+}
+
 if _is_lto_kernel && [ "$_use_lto_suffix" = "yes"  ]; then
     _pkgsuffix=okhsunrog-lto
-elif ! _is_lto_kernel && [ "$_use_gcc_suffix" = "yes" ]; then
+elif ! _is_llvm_kernel && [ "$_use_gcc_suffix" = "yes" ]; then
     _pkgsuffix=okhsunrog-gcc
 else
     _pkgsuffix=okhsunrog
@@ -187,7 +196,7 @@ _minor=3
 #_rcver=rc8
 pkgver=${_major}.${_minor}
 _tagrel=1
-pkgrel=2
+pkgrel=3
 _zfsver=2.4.3
 _zfscommit=c681af76c5a6a15caada25eb13090e41218c7831
 _srcname=cachyos-${_major}.${_minor}-${_tagrel}
@@ -239,8 +248,9 @@ b2sums=('68aa55635fa73ff7d8efd63e498a0d624806e9e2d24718c1fac497f2257ee9d511a16a1
         '84023166d86e51210e9fa2f99c3cce243ceade0a6b3d53041ce0ee72a91371af9732ad6701c4ccfa631680eef222536ad873d0f01ca4207bdb6e8b4f38af4043'
         'e68d9b747d893a8e89becfe18ab990e80a3e101f89f0b6683a565f2a8f822d623e5c092f3ef8487c38978b5328874eeac0873bbb98e6a3ebf7bb442dd1161f7b')
 
-# LLVM makedepends
-if _is_lto_kernel; then
+# LLVM toolchain and the out-of-tree module compatibility patch are needed
+# independently of whether whole-kernel LTO is enabled.
+if _is_llvm_kernel; then
     makedepends+=(clang llvm lld)
     source+=("${_patchsource}/misc/dkms-clang.patch")
     b2sums+=('SKIP')
@@ -322,6 +332,10 @@ _die() { error "$@" ; exit 1; }
 prepare() {
     cd "$_srcname"
 
+    if _is_lto_kernel && ! _is_llvm_kernel; then
+        _die "LLVM LTO requires _compiler=llvm"
+    fi
+
     echo "Setting version..."
     echo "-$pkgrel" > localversion.10-pkgrel
     echo "${pkgbase#linux}" > localversion.20-pkgname
@@ -400,8 +414,15 @@ prepare() {
 
     echo "Selecting '$_use_llvm_lto' LLVM level..."
 
+    # Daily-driver Rust module development profile. Keep runtime assertions and
+    # heavyweight test/debug facilities for the separate QEMU development build.
+    scripts/config -e RUST -e RUST_OVERFLOW_CHECKS -d RUST_DEBUG_ASSERTIONS \
+        -e MODULES -e MODULE_UNLOAD -d MODVERSIONS \
+        -e DEBUG_INFO_DWARF5 -e DEBUG_INFO_BTF -e DEBUG_INFO_BTF_MODULES -e GDB_SCRIPTS \
+        -d KUNIT -d SAMPLES -d KASAN -d KCSAN -d UBSAN -d PROVE_LOCKING
+
     if ! _is_lto_kernel; then
-        echo "Enabling QR Code Panic for GCC Kernels"
+        echo "Enabling QR Code Panic for non-LTO kernels"
         scripts/config --set-str DRM_PANIC_SCREEN qr_code -e DRM_PANIC_SCREEN_QR_CODE \
             --set-str DRM_PANIC_SCREEN_QR_CODE_URL https://panic.archlinux.org/panic_report# \
             --set-val CONFIG_DRM_PANIC_SCREEN_QR_VERSION 40
@@ -532,6 +553,13 @@ prepare() {
     yes "" | make "${BUILD_FLAGS[@]}" config >/dev/null
     diff -u ../config .config || :
 
+    local required_config
+    for required_config in CONFIG_RUST=y CONFIG_LTO_NONE=y CONFIG_DEBUG_INFO_BTF=y \
+        CONFIG_DEBUG_INFO_BTF_MODULES=y; do
+        grep -qx "$required_config" .config ||
+            _die "Required Rust development setting was disabled: $required_config"
+    done
+
     ### Prepared version
     make -s kernelrelease > version
     echo "Prepared $pkgbase version $(<version)"
@@ -558,7 +586,7 @@ _sign_modules() {
     local sign_cert="${srcdir}/${_srcname}/certs/signing_key.x509"
     local hash_algo="$(grep -Po 'CONFIG_MODULE_SIG_HASH="\K[^"]*' "${srcdir}/${_srcname}/.config")"
 
-    if [ "$_use_llvm_lto" != "none" ]; then
+    if _is_llvm_kernel; then
         local strip_bin="llvm-strip"
     else
         local strip_bin="strip"
@@ -592,7 +620,7 @@ build() {
         cd ${srcdir}/"zfs"
 
         local CONFIGURE_FLAGS=()
-        [ "$_use_llvm_lto" != "none" ] && CONFIGURE_FLAGS+=("KERNEL_LLVM=1")
+        _is_llvm_kernel && CONFIGURE_FLAGS+=("KERNEL_LLVM=1")
 
         ./autogen.sh
         sed -i "s|\$(uname -r)|${_kernuname}|g" configure
@@ -656,11 +684,17 @@ _package-headers() {
       zlib
       zstd
      "${pkgbase}")
+    optdepends=('rust: compiler for external Rust modules'
+      'rust-src: Rust core library sources required by the kernel build system'
+      'rust-bindgen: generate kernel C bindings for Rust'
+      'rust-analyzer: language-server support for Rust kernel modules')
     provides=(LINUX-HEADERS)
 
     if _is_lto_kernel; then
         provides+=(linux-cachyos-lto-headers=$_kernver)
         replaces=(linux-cachyos-lto-headers)
+    fi
+    if _is_llvm_kernel; then
         depends+=(clang llvm lld)
     fi
 
@@ -708,14 +742,11 @@ _package-headers() {
     echo "Installing KConfig files..."
     find . -name 'Kconfig*' -exec install -Dm644 {} "$builddir/{}" \;
 
-    # Install .rmeta files if they exist
-    if compgen -G "rust/*.rmeta" 1>/dev/null; then
-        install -Dt "$builddir/rust" -m644 rust/*.rmeta
-    fi
-
-    # Install .so files if they exist
-    if compgen -G "rust/*.so" 1>/dev/null; then
-        install -Dt "$builddir/rust" rust/*.so
+    # External Rust modules need the prebuilt crate metadata. rust-analyzer also
+    # needs the Rust Makefile, sources and generated command metadata.
+    if grep -qx 'CONFIG_RUST=y' .config; then
+        [[ -s rust/libkernel.rmeta ]] || _die "Rust metadata was not built"
+        cp -t "$builddir" -a rust
     fi
 
     echo "Installing unstripped VDSO..."

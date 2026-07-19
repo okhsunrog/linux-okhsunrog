@@ -66,9 +66,34 @@ jobs:
           sudo -u builder env \
             CCACHE_DIR=/home/builder/.ccache \
             PATH=/usr/lib/ccache/bin:$PATH \
-            _use_llvm_lto=thin \
+            _compiler=llvm \
+            _use_llvm_lto=none \
             _processor_opt=meteorlake \
             makepkg -s --noconfirm --noprogressbar
+
+      - name: Verify Rust external module development support
+        run: |
+          set -euo pipefail
+          source_dir="$(find src -mindepth 1 -maxdepth 1 -type d -name 'cachyos-*' -print -quit)"
+          grep -qx 'CONFIG_RUST=y' "$source_dir/.config"
+          grep -qx 'CONFIG_LTO_NONE=y' "$source_dir/.config"
+          test -s "$source_dir/rust/libkernel.rmeta"
+
+          headers_pkg="$(find . -maxdepth 1 -type f -name '*-headers-*.pkg.tar.zst' -print -quit)"
+          test_root="$(mktemp -d)"
+          trap 'rm -rf "$test_root"' EXIT
+          bsdtar -xf "$headers_pkg" -C "$test_root"
+          kernel_dir="$(find "$test_root/usr/lib/modules" -mindepth 2 -maxdepth 2 -type d -name build -print -quit)"
+          test -s "$kernel_dir/rust/libkernel.rmeta"
+          test -f "$kernel_dir/rust/Makefile"
+
+          module_dir="$test_root/rust-module"
+          mkdir "$module_dir"
+          cp "$source_dir/samples/rust/rust_minimal.rs" "$module_dir/"
+          printf 'obj-m := rust_minimal.o\n' > "$module_dir/Kbuild"
+          make -C "$kernel_dir" M="$module_dir" LLVM=1
+          make -C "$kernel_dir" M="$module_dir" LLVM=1 rust-analyzer
+          find "$module_dir" "$kernel_dir" -name rust-project.json -type f -size +0c -print -quit | grep -q .
 
       - name: ccache stats
         if: always()
