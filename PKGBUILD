@@ -110,7 +110,13 @@
 # toolchains are identical everywhere. Bump deliberately, together with a
 # kernel rebuild. Install with:
 #   rustup toolchain install <ver> --profile minimal --component rust-src,rustfmt
-: "${_rust_toolchain:=1.97.1}"
+#
+# A dated *nightly* is pinned (not stable) so that out-of-tree modules can
+# compile no_std crates with -Zbuild-std against the kernel's own
+# scripts/target.json using the SAME compiler that built the kernel — one
+# toolchain for everything, no target-spec format skew. The pinned name is
+# shipped in the headers package as build/rust-toolchain-name.
+: "${_rust_toolchain:=nightly-2026-07-22}"
 
 # Clang LTO mode, only available with the "llvm" compiler - options are "none", "full" or "thin".
 # ATTENTION - one of three predefined values should be selected!
@@ -766,6 +772,9 @@ _package-headers() {
     if grep -qx 'CONFIG_RUST=y' .config; then
         [[ -s rust/libkernel.rmeta ]] || _die "Rust metadata was not built"
         cp -t "$builddir" -a rust
+        # Let external module builds resolve the exact rustup toolchain
+        # (the version string alone can't recover a nightly's dated name).
+        echo "$_rust_toolchain" > "$builddir/rust-toolchain-name"
     fi
 
     echo "Installing unstripped VDSO..."
