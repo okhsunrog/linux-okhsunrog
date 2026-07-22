@@ -31,7 +31,7 @@ jobs:
           pacman -Syu --noconfirm --needed \
             git sudo ccache \
             bc binutils cpio gettext glibc libelf libgcc openssl pahole perl python \
-            rust rust-bindgen rust-src tar xxhash xz zlib zstd \
+            rustup rust-bindgen tar xxhash xz zlib zstd \
             clang llvm lld
 
       - uses: actions/checkout@v4
@@ -41,6 +41,17 @@ jobs:
           useradd -m builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
           echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+
+      - name: Install pinned Rust toolchain
+        # The pin lives in the PKGBUILD (_rust_toolchain); rustup dist
+        # toolchains are bit-identical everywhere, so external modules built
+        # on any machine with the same pin match the kernel's crate metadata.
+        run: |
+          set -euo pipefail
+          toolchain=$(sed -n 's/^: "\${_rust_toolchain:=\(.*\)}"$/\1/p' PKGBUILD)
+          test -n "$toolchain"
+          sudo -u builder rustup toolchain install "$toolchain" \
+            --profile minimal -c rust-src -c rustfmt
 
       - name: Restore ccache
         uses: actions/cache@v4
@@ -79,6 +90,11 @@ jobs:
           grep -qx 'CONFIG_LTO_NONE=y' "$source_dir/.config"
           test -s "$source_dir/rust/libkernel.rmeta"
 
+          # The kernel must have been built by the pinned rustup toolchain,
+          # not a distro rustc (whose version suffix poisons the rmeta).
+          grep '^CONFIG_RUSTC_VERSION_TEXT' "$source_dir/.config"
+          ! grep '^CONFIG_RUSTC_VERSION_TEXT.*Arch Linux' "$source_dir/.config"
+
           headers_pkg="$(find . -maxdepth 1 -type f -name '*-headers-*.pkg.tar.zst' -print -quit)"
           test_root="$(mktemp -d)"
           trap 'rm -rf "$test_root"' EXIT
@@ -91,8 +107,12 @@ jobs:
           mkdir "$module_dir"
           cp "$source_dir/samples/rust/rust_minimal.rs" "$module_dir/"
           printf 'obj-m := rust_minimal.o\n' > "$module_dir/Kbuild"
-          make -C "$kernel_dir" M="$module_dir" LLVM=1
-          make -C "$kernel_dir" M="$module_dir" LLVM=1 rust-analyzer
+          # This step runs as root, which has no rustup toolchains; resolve
+          # the pinned rustc from the builder user's rustup.
+          toolchain=$(sed -n 's/^: "\${_rust_toolchain:=\(.*\)}"$/\1/p' PKGBUILD)
+          rustc_path=$(sudo -u builder rustup which --toolchain "$toolchain" rustc)
+          make -C "$kernel_dir" M="$module_dir" LLVM=1 RUSTC="$rustc_path"
+          make -C "$kernel_dir" M="$module_dir" LLVM=1 RUSTC="$rustc_path" rust-analyzer
           find "$module_dir" "$kernel_dir" -name rust-project.json -type f -size +0c -print -quit | grep -q .
 
       - name: ccache stats

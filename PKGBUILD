@@ -102,6 +102,16 @@
 # Rust code is always compiled by rustc; LLVM is the best-supported Rust-for-Linux setup.
 : "${_compiler:=llvm}"
 
+# Exact Rust toolchain (via rustup) used to build the kernel's Rust support.
+# Pinned so external modules can always obtain a bit-identical rustc: crate
+# metadata (rmeta) is locked to the full rustc version string, and distro
+# rustc builds embed a distro suffix into it, breaking out-of-tree module
+# builds on any machine without that exact distro package. rustup dist
+# toolchains are identical everywhere. Bump deliberately, together with a
+# kernel rebuild. Install with:
+#   rustup toolchain install <ver> --profile minimal --component rust-src,rustfmt
+: "${_rust_toolchain:=1.97.1}"
+
 # Clang LTO mode, only available with the "llvm" compiler - options are "none", "full" or "thin".
 # ATTENTION - one of three predefined values should be selected!
 # "full: uses 1 thread for Linking, slow and uses more memory, theoretically with the highest performance gains."
@@ -219,9 +229,8 @@ makedepends=(
   pahole
   perl
   python
-  rust
+  rustup
   rust-bindgen
-  rust-src
   tar
   xxhash
   xz
@@ -260,6 +269,13 @@ if _is_llvm_kernel; then
         LLVM=1
         LLVM_IAS=1
     )
+    # Resolve the pinned rustup toolchain to an absolute rustc path (kbuild
+    # scripts don't cope with a multi-word RUSTC). Guarded so config-only
+    # operations (e.g. --printsrcinfo) work without the toolchain; prepare()
+    # fails hard if it is actually missing.
+    if _pinned_rustc=$(rustup which --toolchain "$_rust_toolchain" rustc 2>/dev/null); then
+        BUILD_FLAGS+=("RUSTC=$_pinned_rustc")
+    fi
 fi
 
 # WARNING The ZFS module doesn't build with selected RT sched due to licensing issues.
@@ -334,6 +350,10 @@ prepare() {
 
     if _is_lto_kernel && ! _is_llvm_kernel; then
         _die "LLVM LTO requires _compiler=llvm"
+    fi
+
+    if _is_llvm_kernel && ! rustup which --toolchain "$_rust_toolchain" rustc >/dev/null 2>&1; then
+        _die "Rust toolchain $_rust_toolchain missing; run: rustup toolchain install $_rust_toolchain --profile minimal --component rust-src,rustfmt"
     fi
 
     echo "Setting version..."
@@ -684,8 +704,7 @@ _package-headers() {
       zlib
       zstd
      "${pkgbase}")
-    optdepends=('rust: compiler for external Rust modules'
-      'rust-src: Rust core library sources required by the kernel build system'
+    optdepends=('rustup: for the pinned Rust toolchain (see CONFIG_RUSTC_VERSION_TEXT) needed to build external Rust modules'
       'rust-bindgen: generate kernel C bindings for Rust'
       'rust-analyzer: language-server support for Rust kernel modules')
     provides=(LINUX-HEADERS)
