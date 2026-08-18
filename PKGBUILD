@@ -833,7 +833,9 @@ _package-dbg(){
 _package-zfs(){
     pkgdesc="zfs module for the $pkgdesc kernel"
     depends=('pahole' "${pkgbase}=${_kernver}" "zfs-utils=${_zfsver}")
-    provides=("ZFS-MODULE=${_zfsver}")
+    # `zfs` is what zfsbootmenu (and the archzfs convention) depends on --
+    # upstream cachyos only declares ZFS-MODULE, which satisfies nothing.
+    provides=("ZFS-MODULE=${_zfsver}" "zfs=${_zfsver}")
     license=('CDDL')
 
     cd "$_srcname"
