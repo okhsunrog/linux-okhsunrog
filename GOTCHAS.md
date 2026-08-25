@@ -10,9 +10,10 @@ The xe driver's RC6 path keeps getting refactored:
 |---|---|---|
 | 6.18.x (LTS) | `xe_guc_pc.c::xe_guc_pc_start()` with `goto out;` style | original 6.18 patch |
 | **7.0.x (this package)** | same file, but rewritten to use `CLASS(xe_force_wake, ...)` + direct `return ret;` | `return xe_guc_pc_gucrc_disable(pc);` (no `goto out;`) |
-| 7.1+ | new file `xe_guc_rc.c::xe_guc_rc_enable()`, gucrc setup decoupled per kernel commit `40a684f91d` | full re-port: gate inside `xe_guc_rc_enable`, call `xe_guc_rc_disable(guc)` |
+| 7.1.x | new file `xe_guc_rc.c::xe_guc_rc_enable()`, gucrc setup decoupled per kernel commit `40a684f91d` | full re-port: gate inside `xe_guc_rc_enable`, call `xe_guc_rc_disable(guc)` |
+| **7.2.x (this package)** | same as 7.1 | context refresh only (regenerated with `git format-patch` from a patched 7.2.0 tree). The **i915** hunk in `i915_params.c` needed it too: 7.2 removed the `inject_probe_failure` param the hunk anchored on, so the old patch applied with fuzz 2 |
 
-**When bumping to 7.1:** the current xe patch will not apply. Rewrite based on the new file structure. Sample for reference is in the project history — search for `xe_guc_rc_enable` in upstream linux master.
+**When bumping past 7.2:** dry-run both patches against the new tarball first (`patch -Np1 --dry-run`) and treat any `fuzz` as a rewrite signal, not a pass. If `xe_guc_rc.c` moved again, re-port based on the new file structure — search for `xe_guc_rc_enable` in upstream linux master.
 
 **Fuzzy patch matching warning.** `patch -p1` happily applies hunks "with fuzz" by silently matching context lines that no longer exist verbatim. The 6.18 patch fuzzy-matched `goto out;` against `return 0;` here — patch reported success but the resulting code didn't compile. **Always re-test the build after a rebase, even when patch reports clean apply.**
 
@@ -48,7 +49,7 @@ Note that `_pkgsuffix` won't change to `-gcc` unless you also set `_use_gcc_suff
 
 ## 5. ZFS is pinned to a tagged release commit
 
-Pinned to `c681af76` in `cachyos/zfs`: upstream tag `zfs-2.4.3` plus CachyOS's metadata update declaring `Linux-Maximum: 7.1`. This keeps the mainline and LTS recipes on the same ZFS source. Minor releases can still surface regressions in the wild. Risks:
+Pinned to `71a9f957` in `openzfs/zfs` = release tag `zfs-2.4.4` (`Linux-Maximum: 7.2`). No CachyOS fork any more — only reach for `cachyos/zfs` again if a new kernel lands before an OpenZFS release that supports it. This keeps the mainline and LTS recipes on the same ZFS source. Minor releases can still surface regressions in the wild. Risks:
 
 - New behavior may surprise (slow imports, unexpected log spam, etc.)
 - If something breaks ZFS root, recovery requires alternative kernel/initramfs with working ZFS
@@ -56,11 +57,11 @@ Pinned to `c681af76` in `cachyos/zfs`: upstream tag `zfs-2.4.3` plus CachyOS's m
 
 We pin to a specific commit (not a tag/branch) for reproducible builds. Bump `_zfsver` and `_zfscommit` deliberately for later OpenZFS releases; `git+...zfs.git#commit=...` ensures fixes are only picked up explicitly. The ZFS module package has a matching versioned dependency on `zfs-utils`, preventing pacman from silently accepting a userland/kmod release mismatch.
 
-## 6. Mainline 7.0 will EOL fast
+## 6. Mainline will EOL fast
 
-7.0 is **not** an LTS release. It enters EOL when 7.1 is stable (estimated Q3 2026). After that, no upstream stable backports for 7.0.x. Plan:
+7.2 is **not** an LTS release. It enters EOL when 7.3 is stable (roughly 2-3 months after 7.2). After that, no upstream stable backports for 7.2.x. Plan:
 
-- Either jump to 7.1 LTS when it hits stable (and re-port xe patch — see #1)
+- Either jump to 7.3 when it hits stable (and re-check the xe patch — see #1)
 - Or jump to whatever next LTS is announced (was 6.18, next LTS is TBD per kernel.org schedule)
 - Or fall back to `linux-okhsunrog-lts`
 

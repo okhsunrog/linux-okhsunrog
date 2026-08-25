@@ -206,17 +206,17 @@ else
 fi
 
 pkgbase="linux-$_pkgsuffix"
-_major=7.1
-_minor=3
+_major=7.2
+_minor=0
 #_minorc=$((_minor+1))
 #_rcver=rc8
 pkgver=${_major}.${_minor}
 _tagrel=1
-pkgrel=3
-_zfsver=2.4.3
-_zfscommit=c681af76c5a6a15caada25eb13090e41218c7831
+pkgrel=1
+_zfsver=2.4.4
+_zfscommit=71a9f9578616a90c3c14bb59629fb4d31bfd68d1
 _srcname=cachyos-${_major}.${_minor}-${_tagrel}
-pkgdesc="okhsunrog's personal mainline kernel (experimental): CachyOS base 7.1.x + i915/xe RC6 modparam patches for MTL GPU hang workaround + ZFS ${_zfsver}"
+pkgdesc="okhsunrog's personal mainline kernel (experimental): CachyOS base 7.2.x + i915/xe RC6 modparam patches for MTL GPU hang workaround + ZFS ${_zfsver}"
 _kernver="$pkgver-$pkgrel"
 _kernuname="${pkgver}-${_pkgsuffix}"
 arch=('x86_64')
@@ -245,7 +245,7 @@ makedepends=(
 )
 
 _patchsource="https://raw.githubusercontent.com/cachyos/kernel-patches/master/${_major}"
-_nv_ver=595.71.05
+_nv_ver=610.57.04
 _nv_pkg="NVIDIA-Linux-x86_64-${_nv_ver}"
 _nv_open_pkg="NVIDIA-kernel-module-source-${_nv_ver}"
 source=(
@@ -258,10 +258,10 @@ source=(
 # add their own b2sums+=('SKIP') so the array stays in sync.
 # (Upstream cachyos PKGBUILD declares b2sums at bottom which clobbers any
 # conditional appends — moved here to fix.)
-b2sums=('68aa55635fa73ff7d8efd63e498a0d624806e9e2d24718c1fac497f2257ee9d511a16a1da12e061c9867e21a77c14afa0c30fcae6642f8ca2d19daa000d54e4d'
+b2sums=('31474ec81ba911c6c65646695b052b77032742973a3b4d61a212c07431a7d3e952ade31f2864ffcba133d8b2a2d0359bb048ae7154147b9272689e7b4485cb36'
         'SKIP'
-        '84023166d86e51210e9fa2f99c3cce243ceade0a6b3d53041ce0ee72a91371af9732ad6701c4ccfa631680eef222536ad873d0f01ca4207bdb6e8b4f38af4043'
-        'e68d9b747d893a8e89becfe18ab990e80a3e101f89f0b6683a565f2a8f822d623e5c092f3ef8487c38978b5328874eeac0873bbb98e6a3ebf7bb442dd1161f7b')
+        '4ab1dd47f639d22a20c36aa2b698a2f467aa4675561a8a8bd497aeaec2798ea67ec80bd08103f1a0321fcf17e2d9c36f454beeac0b20291e7b579209a5bcd23e'
+        'b6285775fd24f32107cfd76267463c78bc3383b364777c340ebf259a570c1fda9148df716543e2bf6b458c057e4802b49484b01551b1143f95c66fe292f1d4bf')
 
 # LLVM toolchain and the out-of-tree module compatibility patch are needed
 # independently of whether whole-kernel LTO is enabled.
@@ -292,19 +292,18 @@ fi
 # ZFS support
 if [ "$_build_zfs" = "yes" ]; then
     makedepends+=(git)
-    # Upstream zfs-2.4.3 plus the Linux-Maximum 7.1 metadata update.
-    source+=("git+https://github.com/cachyos/zfs.git#commit=${_zfscommit}")
+    # Upstream OpenZFS release tag zfs-${_zfsver}, pinned by commit. 2.4.4 declares
+    # Linux-Maximum 7.2 itself, so the cachyos/zfs compat fork is no longer needed.
+    source+=("git+https://github.com/openzfs/zfs.git#commit=${_zfscommit}")
     b2sums+=('SKIP')
 fi
 
 
 if [ "$_build_nvidia_open" = "yes" ]; then
     source+=("https://download.nvidia.com/XFree86/${_nv_open_pkg%"-$_nv_ver"}/${_nv_open_pkg}.tar.xz"
-             "${_patchsource}/misc/nvidia/0002-Add-IBT-support.patch"
-             "${_patchsource}/misc/nvidia/0003-fix-dsc-correct-RC-parameter-tables-to-match-VESA-DS.patch"
-             "${_patchsource}/misc/nvidia/0004-fix-dsc-use-bits_per_component-for-flatnessDetThresh.patch"
-             "${_patchsource}/misc/nvidia/0005-fix-dp-add-Bigscreen-Beyond-VR-headset-to-WAR-databa.patch")
-    b2sums+=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+             "${_patchsource}/misc/nvidia/0002-fix-dsc-correct-RC-parameter-tables-to-match-VESA-DS.patch"
+             "${_patchsource}/misc/nvidia/0003-fix-dp-add-Bigscreen-Beyond-VR-headset-to-WAR-databa.patch")
+    b2sums+=('SKIP' 'SKIP' 'SKIP')
 fi
 
 # Use generated AutoFDO Profile

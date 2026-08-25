@@ -1,4 +1,4 @@
-From d737c6289bdfbd8cfa80b59101830f790b17ac54 Mon Sep 17 00:00:00 2001
+From d486afcdd5871405736ac643b38f84d73e3d70eb Mon Sep 17 00:00:00 2001
 From: Vinay Belgaumkar <vinay.belgaumkar@intel.com>
 Date: Tue, 21 Oct 2025 15:34:25 -0700
 Subject: [PATCH v2] drm/i915: Add modparam for rc6
@@ -13,10 +13,10 @@ Signed-off-by: Vinay Belgaumkar <vinay.belgaumkar@intel.com>
  3 files changed, 8 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/gpu/drm/i915/gt/intel_rc6.c b/drivers/gpu/drm/i915/gt/intel_rc6.c
-index 932f9f1b06b2..aec862f1e217 100644
+index a0361f8..40e1ff0 100644
 --- a/drivers/gpu/drm/i915/gt/intel_rc6.c
 +++ b/drivers/gpu/drm/i915/gt/intel_rc6.c
-@@ -613,7 +613,10 @@ void intel_rc6_init(struct intel_rc6 *rc6)
+@@ -628,7 +628,10 @@ void intel_rc6_init(struct intel_rc6 *rc6)
  	/* Sanitize rc6, ensure it is disabled before we are ready. */
  	__intel_rc6_disable(rc6);
  
@@ -29,12 +29,12 @@ index 932f9f1b06b2..aec862f1e217 100644
  
  void intel_rc6_sanitize(struct intel_rc6 *rc6)
 diff --git a/drivers/gpu/drm/i915/i915_params.c b/drivers/gpu/drm/i915/i915_params.c
-index 37746dd619fd..e5e86b6bc210 100644
+index 34ed82b..7ea5246 100644
 --- a/drivers/gpu/drm/i915/i915_params.c
 +++ b/drivers/gpu/drm/i915/i915_params.c
-@@ -115,6 +115,9 @@ i915_param_named_unsafe(inject_probe_failure, uint, 0400,
- 	"Force an error after a number of failure check points (0:disabled (default), N:force failure at the Nth failure check point)");
- #endif
+@@ -110,6 +110,9 @@ i915_param_named_unsafe(huc_firmware_path, charp, 0400,
+ i915_param_named_unsafe(gsc_firmware_path, charp, 0400,
+ 	"GSC firmware path to use instead of the default one");
  
 +i915_param_named_unsafe(enable_rc6, bool, 0400,
 +	"Enable power-saving render C-state 6. (default: true)");
@@ -43,7 +43,7 @@ index 37746dd619fd..e5e86b6bc210 100644
  i915_param_named(enable_gvt, bool, 0400,
  	"Enable support for Intel GVT-g graphics virtualization host support(default:false)");
 diff --git a/drivers/gpu/drm/i915/i915_params.h b/drivers/gpu/drm/i915/i915_params.h
-index 0fbcb5b6d7bf..433d60e9c8bd 100644
+index 4d9d4cd..cb0038b 100644
 --- a/drivers/gpu/drm/i915/i915_params.h
 +++ b/drivers/gpu/drm/i915/i915_params.h
 @@ -48,6 +48,7 @@ struct drm_printer;
@@ -55,5 +55,5 @@ index 0fbcb5b6d7bf..433d60e9c8bd 100644
  	param(char *, guc_firmware_path, NULL, 0400) \
  	param(char *, huc_firmware_path, NULL, 0400) \
 -- 
-2.38.1
+2.55.0
 
