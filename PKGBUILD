@@ -5,16 +5,18 @@
 #   Vasiliy Stelmachenok <ventureo@cachyos.org>
 #
 # Personal mainline kernel (experimental):
-#   - CachyOS patch stack (BORE/Cachy sauce) on mainline 7.1.x
+#   - CachyOS patch stack (BORE/Cachy sauce) on mainline 7.2.x
 #   - i915/xe RC6 modparam patches (workaround for MTL GPU hang, fdo#14469)
-#   - ZFS 2.4.3 from cachyos/zfs
-#     (upstream zfs-2.4.3 plus the Linux-Maximum 7.1 metadata update,
-#     pinned to commit c681af76 for reproducible builds)
+#   - OpenZFS 2.4.4, pinned to release commit 71a9f957
 # Contributor: Jan Alexander Steffens (heftig) <jan.steffens@gmail.com>
 # Contributor: Tobias Powalowski <tpowa@archlinux.org>
 # Contributor: Thomas Baechler <thomas@archlinux.org>
 
 ### BUILD OPTIONS
+
+# Optional public PEM certificate to trust for kexec and module signatures.
+# Use a file in the recipe directory; never include its private key.
+: "${_secureboot_cert:=}"
 # Set these variables to ANYTHING that is not null or choose proper variable to enable them
 
 ### Selecting CachyOS config
@@ -207,7 +209,7 @@ fi
 
 pkgbase="linux-$_pkgsuffix"
 _major=7.2
-_minor=0
+_minor=8
 #_minorc=$((_minor+1))
 #_rcver=rc8
 pkgver=${_major}.${_minor}
@@ -258,10 +260,19 @@ source=(
 # add their own b2sums+=('SKIP') so the array stays in sync.
 # (Upstream cachyos PKGBUILD declares b2sums at bottom which clobbers any
 # conditional appends — moved here to fix.)
-b2sums=('31474ec81ba911c6c65646695b052b77032742973a3b4d61a212c07431a7d3e952ade31f2864ffcba133d8b2a2d0359bb048ae7154147b9272689e7b4485cb36'
+b2sums=('e9c1784d45b95872cee8a993c96659dda4174b1e42097757dcbada2f1041776a67009caefe0ed0b5af2c3d9811d0cb8f72c67b988f0aef1673ed6d38b901154b'
         'SKIP'
         '4ab1dd47f639d22a20c36aa2b698a2f467aa4675561a8a8bd497aeaec2798ea67ec80bd08103f1a0321fcf17e2d9c36f454beeac0b20291e7b579209a5bcd23e'
         'b6285775fd24f32107cfd76267463c78bc3383b364777c340ebf259a570c1fda9148df716543e2bf6b458c057e4802b49484b01551b1143f95c66fe292f1d4bf')
+
+if [[ -n "$_secureboot_cert" ]]; then
+    [[ "$_secureboot_cert" =~ ^[a-zA-Z0-9_.-]+$ ]] || {
+        printf 'Invalid _secureboot_cert: use a filename in the recipe directory\n' >&2
+        return 1
+    }
+    source+=("${_secureboot_cert}")
+    b2sums+=('SKIP')
+fi
 
 # LLVM toolchain and the out-of-tree module compatibility patch are needed
 # independently of whether whole-kernel LTO is enabled.
@@ -572,6 +583,17 @@ prepare() {
         fi
     fi
 
+    # Applied after configuration overrides, before Kconfig resolves dependencies.
+    if [[ -n "$_secureboot_cert" ]]; then
+        openssl x509 -in "${srcdir}/${_secureboot_cert##*/}" -noout ||
+            _die "Invalid public Secure Boot certificate"
+        if grep -q "PRIVATE KEY" "${srcdir}/${_secureboot_cert##*/}"; then
+            _die "Secure Boot trust file must not contain a private key"
+        fi
+        cp "${srcdir}/${_secureboot_cert##*/}" certs/secureboot-trusted.pem
+        scripts/config --set-str SYSTEM_TRUSTED_KEYS certs/secureboot-trusted.pem
+    fi
+
     ### Rewrite configuration
     echo "Rewrite configuration..."
     make "${BUILD_FLAGS[@]}" prepare
@@ -584,6 +606,21 @@ prepare() {
         grep -qx "$required_config" .config ||
             _die "Required Rust development setting was disabled: $required_config"
     done
+
+    # Keep verification available without enforcing signatures or lockdown.
+    for required_config in CONFIG_EFI=y CONFIG_EFI_STUB=y CONFIG_KEXEC_FILE=y \
+        CONFIG_KEXEC_SIG=y CONFIG_KEXEC_BZIMAGE_VERIFY_SIG=y \
+        CONFIG_SECURITY_LOCKDOWN_LSM=y CONFIG_INTEGRITY_PLATFORM_KEYRING=y \
+        CONFIG_SYSTEM_TRUSTED_KEYRING=y CONFIG_SECONDARY_TRUSTED_KEYRING=y \
+        CONFIG_MODULE_SIG=y; do
+        grep -qx "$required_config" .config ||
+            _die "Required Secure Boot support was disabled: $required_config"
+    done
+
+    if [[ -n "$_secureboot_cert" ]]; then
+        grep -qx 'CONFIG_SYSTEM_TRUSTED_KEYS="certs/secureboot-trusted.pem"' .config ||
+            _die "Requested Secure Boot certificate was not configured"
+    fi
 
     ### Prepared version
     make -s kernelrelease > version

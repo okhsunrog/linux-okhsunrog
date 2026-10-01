@@ -56,3 +56,39 @@ Do **not** run `updpkgsums` on this PKGBUILD — it mangles the hand-written `pr
 ## License
 
 Same as Linux kernel: GPL-2.0-only.
+
+## Secure Boot preparation
+
+The kernel keeps EFI boot, PE signature verification for `kexec_file_load`,
+platform/secondary trust keyrings, module signatures and lockdown support enabled.
+The recipe checks these settings during preparation. This does **not** enable
+mandatory signatures or lockdown, sign the kernel EFI image, or verify an external
+initramfs and command line.
+
+Optionally embed an additional **public PEM certificate** in the kernel trust
+store:
+
+```sh
+_secureboot_cert=secureboot-trusted.pem makepkg -s
+```
+
+Put the certificate in the recipe directory. For GitHub Actions, commit only the
+public certificate and pass `_secureboot_cert=secureboot-trusted.pem` in the build
+step's environment. Never commit or upload its private key. The default remains
+the kernel's existing trust configuration.
+
+After downloading and installing the packages, sign the installed `/boot/vmlinuz-*`
+images locally with `sbctl sign -s <path>`. Re-sign after every kernel update.
+ZFSBootMenu's complete EFI image also needs a signature after every `generate-zbm`.
+Keep signing keys on the local machine; the CI artifacts are unsigned EFI images.
+
+For ZFSBootMenu, explicitly select the intended installed kernel using
+`generate-zbm -K <kernel-release>` (or `Kernel.Version` in its configuration).
+Updating the main OS kernel does not update an existing ZBM image.
+
+The ZFS module subpackage is signed with the kernel build's module key, which is
+separate from the EFI signing key. Additional DKMS modules need their own trusted
+signatures before enabling lockdown. Keep enforcement disabled until the entire
+ZBM boot path, including initramfs/command-line verification, has been prepared
+and tested. Snapshot selection can remain available, but old boot environments
+must satisfy the eventual verification policy too.

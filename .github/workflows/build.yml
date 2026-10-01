@@ -115,6 +115,16 @@ jobs:
           make -C "$kernel_dir" M="$module_dir" LLVM=1 RUSTC="$rustc_path" rust-analyzer
           find "$module_dir" "$kernel_dir" -name rust-project.json -type f -size +0c -print -quit | grep -q .
 
+      - name: Verify Secure Boot support remains available
+        run: |
+          set -euo pipefail
+          source_dir="$(find src -mindepth 1 -maxdepth 1 -type d -name 'cachyos-*' -print -quit)"
+          for option in EFI EFI_STUB KEXEC_FILE KEXEC_SIG KEXEC_BZIMAGE_VERIFY_SIG \
+            SECURITY_LOCKDOWN_LSM INTEGRITY_PLATFORM_KEYRING \
+            SYSTEM_TRUSTED_KEYRING SECONDARY_TRUSTED_KEYRING MODULE_SIG; do
+            grep -qx "CONFIG_${option}=y" "$source_dir/.config"
+          done
+
       - name: ccache stats
         if: always()
         run: sudo -u builder ccache -s
