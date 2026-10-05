@@ -14,9 +14,14 @@
 
 ### BUILD OPTIONS
 
-# Optional public PEM certificate to trust for kexec and module signatures.
-# Use a file in the recipe directory; never include its private key.
-: "${_secureboot_cert:=}"
+# Public Secure Boot and DKMS certificates; private keys stay on the host.
+: "${_secureboot_cert:=secureboot-trusted.pem}"
+# Opt-in for a later validated deployment; ordinary CI retains permissive defaults.
+: "${_secureboot_enforce:=no}"
+[[ "$_secureboot_enforce" == yes || "$_secureboot_enforce" == no ]] || {
+    printf '_secureboot_enforce must be yes or no\n' >&2
+    return 1
+}
 # Set these variables to ANYTHING that is not null or choose proper variable to enable them
 
 ### Selecting CachyOS config
@@ -214,7 +219,10 @@ _minor=8
 #_rcver=rc8
 pkgver=${_major}.${_minor}
 _tagrel=1
-pkgrel=1
+pkgrel=2
+if [[ "$_secureboot_enforce" == yes ]]; then
+    pkgrel=3
+fi
 _zfsver=2.4.4
 _zfscommit=71a9f9578616a90c3c14bb59629fb4d31bfd68d1
 _srcname=cachyos-${_major}.${_minor}-${_tagrel}
@@ -585,13 +593,20 @@ prepare() {
 
     # Applied after configuration overrides, before Kconfig resolves dependencies.
     if [[ -n "$_secureboot_cert" ]]; then
-        openssl x509 -in "${srcdir}/${_secureboot_cert##*/}" -noout ||
-            _die "Invalid public Secure Boot certificate"
         if grep -q "PRIVATE KEY" "${srcdir}/${_secureboot_cert##*/}"; then
             _die "Secure Boot trust file must not contain a private key"
         fi
+        openssl crl2pkcs7 -nocrl -certfile "${srcdir}/${_secureboot_cert##*/}" -out /dev/null ||
+            _die "Invalid public Secure Boot certificate bundle"
+        grep -q '^-----BEGIN CERTIFICATE-----$' "${srcdir}/${_secureboot_cert##*/}" ||
+            _die "Secure Boot trust bundle contains no certificates"
         cp "${srcdir}/${_secureboot_cert##*/}" certs/secureboot-trusted.pem
         scripts/config --set-str SYSTEM_TRUSTED_KEYS certs/secureboot-trusted.pem
+    fi
+    if [[ "$_secureboot_enforce" == yes ]]; then
+        [[ -n "$_secureboot_cert" ]] || _die "Enforcement requires trusted signing certificates"
+        scripts/config --enable KEXEC_SIG_FORCE --enable MODULE_SIG_FORCE \
+            --enable SECURITY_LOCKDOWN_LSM_EARLY --enable LOCK_DOWN_KERNEL_FORCE_INTEGRITY
     fi
 
     ### Rewrite configuration
@@ -620,6 +635,12 @@ prepare() {
     if [[ -n "$_secureboot_cert" ]]; then
         grep -qx 'CONFIG_SYSTEM_TRUSTED_KEYS="certs/secureboot-trusted.pem"' .config ||
             _die "Requested Secure Boot certificate was not configured"
+    fi
+    if [[ "$_secureboot_enforce" == yes ]]; then
+        for required_config in CONFIG_KEXEC_SIG_FORCE=y CONFIG_MODULE_SIG_FORCE=y \
+            CONFIG_SECURITY_LOCKDOWN_LSM_EARLY=y CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY=y; do
+            grep -qx "$required_config" .config || _die "Missing enforcement setting: $required_config"
+        done
     fi
 
     ### Prepared version

@@ -8,6 +8,11 @@ on:
       - '.gitignore'
   pull_request:
   workflow_dispatch:
+    inputs:
+      enforce_signatures:
+        description: Require signed modules and kexec images, with integrity lockdown
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -30,7 +35,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm --needed \
             git sudo ccache \
-            bc binutils cpio gettext glibc libelf libgcc openssl pahole perl python \
+            bc binutils cpio gettext glibc libelf libgcc openssl pahole perl python uv \
             rustup rust-bindgen tar xxhash xz zlib zstd \
             clang llvm lld
 
@@ -74,12 +79,18 @@ jobs:
         # not for whichever runner happens to host this job. Identical to a local
         # _processor_opt=native build on a Meteor Lake host.
         run: |
+          secureboot_enforce=no
+          if [[ '${{ inputs.enforce_signatures }}' == 'true' ]]; then
+            secureboot_enforce=yes
+          fi
           sudo -u builder env \
             CCACHE_DIR=/home/builder/.ccache \
             PATH=/usr/lib/ccache/bin:$PATH \
             _compiler=llvm \
             _use_llvm_lto=none \
             _processor_opt=meteorlake \
+            _secureboot_cert=secureboot-trusted.pem \
+            _secureboot_enforce="$secureboot_enforce" \
             makepkg -s --noconfirm --noprogressbar
 
       - name: Verify Rust external module development support
@@ -124,6 +135,28 @@ jobs:
             SYSTEM_TRUSTED_KEYRING SECONDARY_TRUSTED_KEYRING MODULE_SIG; do
             grep -qx "CONFIG_${option}=y" "$source_dir/.config"
           done
+          grep -qx 'CONFIG_SYSTEM_TRUSTED_KEYS="certs/secureboot-trusted.pem"' "$source_dir/.config"
+          cmp secureboot-trusted.pem "$source_dir/certs/secureboot-trusted.pem"
+          uv run --no-project python - "$source_dir/certs/x509_certificate_list" <<'PY'
+          import pathlib, re, subprocess, sys
+          compiled = pathlib.Path(sys.argv[1]).read_bytes()
+          pem = pathlib.Path('secureboot-trusted.pem').read_bytes()
+          assert b'PRIVATE KEY' not in pem
+          certs = re.findall(rb'-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----', pem, re.S)
+          assert len(certs) == 2
+          for cert in certs:
+              der = subprocess.check_output(['openssl', 'x509', '-outform', 'DER'], input=cert)
+              assert der in compiled, 'Trusted certificate missing from compiled kernel certificate list'
+          PY
+          if [[ '${{ inputs.enforce_signatures }}' == 'true' ]]; then
+            for option in KEXEC_SIG_FORCE MODULE_SIG_FORCE SECURITY_LOCKDOWN_LSM_EARLY LOCK_DOWN_KERNEL_FORCE_INTEGRITY; do
+              grep -qx "CONFIG_${option}=y" "$source_dir/.config"
+            done
+          else
+            grep -qx 'CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y' "$source_dir/.config"
+            ! grep -qx 'CONFIG_KEXEC_SIG_FORCE=y' "$source_dir/.config"
+            ! grep -qx 'CONFIG_MODULE_SIG_FORCE=y' "$source_dir/.config"
+          fi
 
       - name: ccache stats
         if: always()

@@ -65,17 +65,29 @@ The recipe checks these settings during preparation. This does **not** enable
 mandatory signatures or lockdown, sign the kernel EFI image, or verify an external
 initramfs and command line.
 
-Optionally embed an additional **public PEM certificate** in the kernel trust
-store:
+The default build embeds `secureboot-trusted.pem`, a bundle of two public
+certificates: the local EFI signing certificate and the DKMS module signing
+certificate. This permits the kernel to verify local signatures without giving
+GitHub Actions either private key. The additional module signing key generated
+by the kernel build continues to sign the packaged modules and ZFS.
+
+To use a different public certificate bundle:
 
 ```sh
 _secureboot_cert=secureboot-trusted.pem makepkg -s
 ```
 
-Put the certificate in the recipe directory. For GitHub Actions, commit only the
-public certificate and pass `_secureboot_cert=secureboot-trusted.pem` in the build
-step's environment. Never commit or upload its private key. The default remains
-the kernel's existing trust configuration.
+Put the certificates in the recipe directory. Never commit or upload their
+private keys. CI verifies that both default certificates are present in the
+compiled kernel certificate list, rather than checking the configuration alone.
+
+Ordinary push builds produce `7.2.8-2` and retain permissive defaults. The manual
+workflow input `enforce_signatures` enables `_secureboot_enforce=yes` and produces
+`7.2.8-3`, requiring signed modules and kexec images with integrity lockdown.
+This input is for the later validated deployment: it can prevent old unsigned
+snapshot kernels and modules from loading. Do not install it until the ZBM
+verification and recovery paths have been prepared. Rust stays enabled in both
+build profiles.
 
 After downloading and installing the packages, sign the installed `/boot/vmlinuz-*`
 images locally with `sbctl sign -s <path>`. Re-sign after every kernel update.
