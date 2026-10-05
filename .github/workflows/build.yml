@@ -37,7 +37,8 @@ jobs:
             git sudo ccache \
             bc binutils cpio gettext glibc libelf libgcc openssl pahole perl python uv \
             rustup rust-bindgen tar xxhash xz zlib zstd \
-            clang llvm lld
+            clang llvm lld qemu-system-x86 busybox kexec-tools keyutils attr \
+            autoconf automake libtool sbsigntools
 
       - uses: actions/checkout@v4
 
@@ -132,9 +133,13 @@ jobs:
           source_dir="$(find src -mindepth 1 -maxdepth 1 -type d -name 'cachyos-*' -print -quit)"
           for option in EFI EFI_STUB KEXEC_FILE KEXEC_SIG KEXEC_BZIMAGE_VERIFY_SIG \
             SECURITY_LOCKDOWN_LSM INTEGRITY_PLATFORM_KEYRING \
-            SYSTEM_TRUSTED_KEYRING SECONDARY_TRUSTED_KEYRING MODULE_SIG; do
+            SYSTEM_TRUSTED_KEYRING SECONDARY_TRUSTED_KEYRING MODULE_SIG \
+            IMA IMA_APPRAISE IMA_READ_POLICY IMA_LOAD_X509 IMA_ARCH_POLICY \
+            IMA_KEYRINGS_PERMIT_SIGNED_BY_BUILTIN_OR_SECONDARY; do
             grep -qx "CONFIG_${option}=y" "$source_dir/.config"
           done
+          grep -q '^CONFIG_LSM="\([^" ]*,\)\?ima\(,[^" ]*\)\?"$' "$source_dir/.config"
+          grep -qx 'CONFIG_IMA_DEFAULT_HASH="sha256"' "$source_dir/.config"
           grep -qx 'CONFIG_SYSTEM_TRUSTED_KEYS="certs/secureboot-trusted.pem"' "$source_dir/.config"
           cmp secureboot-trusted.pem "$source_dir/certs/secureboot-trusted.pem"
           uv run --no-project python - "$source_dir/certs/x509_certificate_list" <<'PY'
@@ -143,7 +148,7 @@ jobs:
           pem = pathlib.Path('secureboot-trusted.pem').read_bytes()
           assert b'PRIVATE KEY' not in pem
           certs = re.findall(rb'-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----', pem, re.S)
-          assert len(certs) == 2
+          assert len(certs) == 3
           for cert in certs:
               der = subprocess.check_output(['openssl', 'x509', '-outform', 'DER'], input=cert)
               assert der in compiled, 'Trusted certificate missing from compiled kernel certificate list'
@@ -157,6 +162,15 @@ jobs:
             ! grep -qx 'CONFIG_KEXEC_SIG_FORCE=y' "$source_dir/.config"
             ! grep -qx 'CONFIG_MODULE_SIG_FORCE=y' "$source_dir/.config"
           fi
+
+      - name: Test IMA initramfs appraisal and kexec in QEMU
+        run: |
+          set -euo pipefail
+          source_dir="$(find src -mindepth 1 -maxdepth 1 -type d -name 'cachyos-*' -print -quit)"
+          bash tests/build-evmctl.sh /tmp/ima-evm-utils
+          openssl x509 -inform DER -in "$source_dir/certs/signing_key.x509" -out /tmp/ima-build-cert.pem
+          bash tests/ima-xattr.sh /tmp/ima-evm-utils/src/evmctl "$source_dir/certs/signing_key.pem" /tmp/ima-build-cert.pem "$source_dir/certs/signing_key.x509"
+          bash tests/ima-kexec.sh "$source_dir" /tmp/ima-evm-utils/src/evmctl
 
       - name: ccache stats
         if: always()

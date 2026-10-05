@@ -1,0 +1,10 @@
+#!/bin/bash
+# ZBM build-time opt-in only: leave the installed audit image unchanged.
+set -euo pipefail
+policy=/sys/kernel/security/integrity/ima/policy
+mountpoint -q /sys/kernel/security || mount -t securityfs securityfs /sys/kernel/security
+[[ -e $policy ]] || policy=/sys/kernel/security/ima/policy
+[[ -e $policy ]] || { echo 'IMA policy interface unavailable' >&2; exit 1; }
+keyctl list %keyring:.ima
+cat /etc/zbm-ima-policy > "$policy"
+grep -Fx 'appraise func=KEXEC_INITRAMFS_CHECK appraise_type=imasig' "$policy"

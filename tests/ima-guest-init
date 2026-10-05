@@ -1,0 +1,43 @@
+#!/bin/sh
+export PATH=/bin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mount -t securityfs securityfs /sys/kernel/security
+fail() { echo "IMA_TEST_FAIL: $*"; poweroff -f; while :; do sleep 1; done; }
+case " $(cat /proc/cmdline) " in
+    *' ima_test=second '*) echo IMA_TEST_SECOND_KERNEL_BOOTED; poweroff -f; while :; do sleep 1; done ;;
+esac
+policy=/sys/kernel/security/integrity/ima/policy
+[ -e "$policy" ] || policy=/sys/kernel/security/ima/policy
+[ -e "$policy" ] || fail 'IMA policy interface absent'
+keyctl list %keyring:.ima || fail 'IMA trusted keyring absent'
+keyctl list %keyring:.builtin_trusted_keys > /run/trusted-keys
+grep -q 'DKMS module signing key' /run/trusted-keys || fail 'DKMS certificate not loaded by kernel'
+grep -q 'ZFSBootMenu initramfs signing' /run/trusted-keys || fail 'IMA owner certificate not loaded by kernel'
+keyctl padd asymmetric '' %keyring:.ima < /fixtures/owner-ima.der || fail 'Owner IMA certificate not accepted by restricted keyring'
+echo IMA_TEST_OWNER_KEYS_TRUSTED
+mount -t tmpfs tmpfs /run
+cp /fixtures/good /run/good
+cp /fixtures/unsigned /run/unsigned
+cp /fixtures/good /run/tampered
+cp /fixtures/good /run/wrong-key
+setfattr -n security.ima -v "$(cat /fixtures/good.hex)" /run/good || fail 'label good'
+setfattr -n security.ima -v "$(cat /fixtures/good.hex)" /run/tampered || fail 'label tampered'
+# Modify contents after signing; the signature must no longer validate.
+printf X | dd of=/run/tampered bs=1 seek=10 conv=notrunc
+setfattr -n security.ima -v "$(cat /fixtures/wrong.hex)" /run/wrong-key || fail 'label wrong key'
+cat /ima-policy > "$policy" || fail 'policy load'
+for kind in unsigned tampered wrong-key; do
+    if kexec -s -l /kernel --initrd="/run/$kind" --append='console=ttyS0 ima_test=second'; then
+        fail "$kind initramfs unexpectedly accepted"
+    fi
+    echo "IMA_TEST_REJECTED_$kind"
+done
+if kexec -c -l /kernel --initrd=/run/good --append='console=ttyS0 ima_test=second'; then
+    fail 'legacy kexec_load unexpectedly accepted under lockdown'
+fi
+echo IMA_TEST_LEGACY_KEXEC_REJECTED
+kexec -s -l /kernel --initrd=/run/good --append='console=ttyS0 ima_test=second' || fail 'valid signed initramfs rejected'
+echo IMA_TEST_VALID_LOAD
+kexec -e || fail 'kexec execution failed'

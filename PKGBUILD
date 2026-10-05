@@ -219,9 +219,9 @@ _minor=8
 #_rcver=rc8
 pkgver=${_major}.${_minor}
 _tagrel=1
-pkgrel=2
+pkgrel=4
 if [[ "$_secureboot_enforce" == yes ]]; then
-    pkgrel=3
+    pkgrel=5
 fi
 _zfsver=2.4.4
 _zfscommit=71a9f9578616a90c3c14bb59629fb4d31bfd68d1
@@ -607,7 +607,23 @@ prepare() {
         [[ -n "$_secureboot_cert" ]] || _die "Enforcement requires trusted signing certificates"
         scripts/config --enable KEXEC_SIG_FORCE --enable MODULE_SIG_FORCE \
             --enable SECURITY_LOCKDOWN_LSM_EARLY --enable LOCK_DOWN_KERNEL_FORCE_INTEGRITY
+        scripts/config --disable IMA_APPRAISE_BOOTPARAM
     fi
+    # Enable capabilities without a host-wide appraisal policy. ZBM installs its
+    # narrow initramfs rule separately; merely compiling IMA does not enable it.
+    scripts/config --enable IMA --enable IMA_APPRAISE --enable IMA_READ_POLICY \
+        --enable IMA_LOAD_X509 --enable IMA_ARCH_POLICY \
+        --enable IMA_KEYRINGS_PERMIT_SIGNED_BY_BUILTIN_OR_SECONDARY \
+        --enable CRYPTO_SHA256 --enable IMA_DEFAULT_HASH_SHA256 \
+        --disable IMA_DEFAULT_HASH_SHA1 \
+        --enable MODULE_SIG_KEY_TYPE_RSA --disable MODULE_SIG_KEY_TYPE_ECDSA
+    local lsm_list
+    lsm_list=$(scripts/config --get-val LSM)
+    lsm_list=${lsm_list#\"}; lsm_list=${lsm_list%\"}
+    case ",$lsm_list," in
+        *,ima,*) ;;
+        *) scripts/config --set-str LSM "$lsm_list,ima" ;;
+    esac
 
     ### Rewrite configuration
     echo "Rewrite configuration..."
@@ -631,6 +647,14 @@ prepare() {
         grep -qx "$required_config" .config ||
             _die "Required Secure Boot support was disabled: $required_config"
     done
+    for required_config in CONFIG_IMA=y CONFIG_IMA_APPRAISE=y CONFIG_IMA_READ_POLICY=y \
+        CONFIG_IMA_LOAD_X509=y CONFIG_IMA_ARCH_POLICY=y \
+        CONFIG_IMA_KEYRINGS_PERMIT_SIGNED_BY_BUILTIN_OR_SECONDARY=y \
+        CONFIG_IMA_DEFAULT_HASH=\"sha256\" CONFIG_MODULE_SIG_KEY_TYPE_RSA=y; do
+        grep -qx "$required_config" .config || _die "Required IMA setting missing: $required_config"
+    done
+    grep -q '^CONFIG_LSM="\([^" ]*,\)\?ima\(,[^" ]*\)\?"$' .config ||
+        _die "IMA is not enabled in the default LSM list"
 
     if [[ -n "$_secureboot_cert" ]]; then
         grep -qx 'CONFIG_SYSTEM_TRUSTED_KEYS="certs/secureboot-trusted.pem"' .config ||

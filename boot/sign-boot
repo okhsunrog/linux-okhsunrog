@@ -1,0 +1,37 @@
+#!/bin/bash
+set -euo pipefail
+exec 9>/run/lock/zbm-sign-boot.lock
+flock 9
+kernel=/boot/vmlinuz-linux-okhsunrog
+initramfs=/boot/initramfs-linux-okhsunrog.img
+cert=/var/lib/sbctl/keys/db/db.pem
+key=/var/lib/sbctl/keys/db/db.key
+dataset=$(findmnt -n -o SOURCE -T /)
+[[ $dataset == novafs/* ]] || { echo 'Unexpected root dataset' >&2; exit 1; }
+cmdline=$(zfs get -H -o value org.zfsbootmenu:commandline "$dataset")
+[[ $cmdline != '-' && $cmdline != *$'\n'* ]] || exit 1
+# Match ZBM's tokenization and hostid override instead of signing raw properties.
+set +u
+# shellcheck disable=SC1091
+source /usr/share/zfsbootmenu/lib/zfsbootmenu-kcl.sh
+set -u
+cmdline=$(kcl_tokenize <<< "$cmdline" | { kcl_suppress root spl_hostid spl.spl_hostid || true; } | kcl_append "spl.spl_hostid=0x$(hostid)" | kcl_assemble)
+[[ $(zfs get -H -o value org.zfsbootmenu:rootprefix "$dataset") == root=ZFS= ]] || exit 1
+version=$(basename "$(dirname "$(find /usr/lib/modules -maxdepth 2 -name pkgbase -exec grep -l -x linux-okhsunrog {} + | head -1)")")
+[[ $version != '.' ]] || exit 1
+if grep -qx CONFIG_IMA=y "/usr/lib/modules/$version/build/.config"; then
+    /usr/local/sbin/zbm-sign-initramfs "$initramfs"
+fi
+sbctl sign "$kernel"
+sbctl sign "/usr/lib/modules/$version/vmlinuz"
+sbverify --cert "$cert" "$kernel"
+policy="${kernel}.zbm-policy"
+tmp=$(mktemp /boot/.zbm-policy.XXXXXX)
+trap 'rm -f "$tmp" "$tmp.sig"' EXIT
+kh=$(sha256sum "$kernel"); ih=$(sha256sum "$initramfs")
+printf 'ZBM-POLICY-v1\n%s\n%s\nroot=ZFS=novafs/\n%s\n' "${kh%% *}" "${ih%% *}" "$cmdline" > "$tmp"
+openssl dgst -sha256 -sign "$key" -out "$tmp.sig" "$tmp"
+chmod 644 "$tmp" "$tmp.sig"
+mv "$tmp.sig" "${policy}.sig"
+mv "$tmp" "$policy"
+/usr/local/libexec/zbm-verify-boot "$kernel" "$initramfs" "root=ZFS=$dataset $cmdline" /etc/zfsbootmenu/verification.pem

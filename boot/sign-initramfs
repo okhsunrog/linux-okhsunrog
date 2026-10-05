@@ -1,0 +1,10 @@
+#!/bin/bash
+# Apply an IMA signature without changing the initramfs bytes or its manifest hash.
+set -euo pipefail
+[[ $# == 1 && -f $1 ]] || { echo 'usage: sign-initramfs FILE' >&2; exit 2; }
+export LD_LIBRARY_PATH=/usr/local/libexec/zbm-ima-tools
+evmctl=/usr/local/libexec/zbm-ima-tools/evmctl
+key=/var/lib/zbm-secureboot/ima/ima.key
+cert=/var/lib/zbm-secureboot/ima/ima.pem
+"$evmctl" -a sha256 -k "$key" --keyid-from-cert "$cert" ima_sign "$1"
+"$evmctl" -k /etc/zfsbootmenu/ima.der ima_verify "$1"

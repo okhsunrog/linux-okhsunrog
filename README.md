@@ -65,10 +65,11 @@ The recipe checks these settings during preparation. This does **not** enable
 mandatory signatures or lockdown, sign the kernel EFI image, or verify an external
 initramfs and command line.
 
-The default build embeds `secureboot-trusted.pem`, a bundle of two public
-certificates: the local EFI signing certificate and the DKMS module signing
-certificate. This permits the kernel to verify local signatures without giving
-GitHub Actions either private key. The additional module signing key generated
+The default build embeds `secureboot-trusted.pem`, a bundle of three public
+certificates: the local EFI signing certificate, the DKMS module signing
+certificate and a dedicated IMA initramfs signing certificate. This permits the
+kernel to verify local signatures without giving GitHub Actions any private key.
+The additional module signing key generated
 by the kernel build continues to sign the packaged modules and ZFS.
 
 To use a different public certificate bundle:
@@ -78,16 +79,46 @@ _secureboot_cert=secureboot-trusted.pem makepkg -s
 ```
 
 Put the certificates in the recipe directory. Never commit or upload their
-private keys. CI verifies that both default certificates are present in the
+private keys. CI verifies that all three certificates are present in the
 compiled kernel certificate list, rather than checking the configuration alone.
 
-Ordinary push builds produce `7.2.8-2` and retain permissive defaults. The manual
+Ordinary push builds produce `7.2.8-4` and retain permissive defaults. The manual
 workflow input `enforce_signatures` enables `_secureboot_enforce=yes` and produces
-`7.2.8-3`, requiring signed modules and kexec images with integrity lockdown.
+`7.2.8-5`, requiring signed modules and kexec images with integrity lockdown.
 This input is for the later validated deployment: it can prevent old unsigned
 snapshot kernels and modules from loading. Do not install it until the ZBM
 verification and recovery paths have been prepared. Rust stays enabled in both
 build profiles.
+
+## IMA initramfs appraisal
+
+IMA, appraisal, certificate loading and policy readback are enabled in the
+kernel, with `ima` in the default LSM list and SHA-256 as its default hash.
+The ordinary profile does not load a host-wide appraisal policy. The ZBM
+candidate uses the narrow rule in `boot/ima-policy`: only initramfs files read
+by `kexec_file_load` require a valid `security.ima` signature. This policy does
+not validate the kexec command line or forbid loading without an initramfs;
+the manifest, loader restrictions and recovery paths remain separate work.
+
+The local IMA private key is `/var/lib/zbm-secureboot/ima/ima.key`; its certificate
+is directly trusted by the compiled kernel. It has the digitalSignature usage
+and subject key identifier required by the restricted `.ima` keyring. Unlike
+appending a signature, the extended attribute does not change initramfs bytes.
+Native ZFS snapshots preserve it; old snapshots without it must be migrated
+before enforcement.
+
+`boot/sign-initramfs` is installed as `zbm-sign-initramfs`. The prepared
+`boot/module-setup.sh` includes the certificate, policy and early hook only when
+`zbm_ima=yes` is explicitly set in the ZBM dracut configuration. It is not enabled
+in the currently installed audit image. The early hook refuses to continue if
+the key or policy cannot be initialized.
+
+CI builds a pinned upstream evmctl and runs `tests/ima-xattr.sh`, then boots the
+new kernel in QEMU. `tests/ima-kexec.sh` checks that unsigned, modified and
+wrong-key initramfs files are rejected, that legacy kexec is blocked under
+lockdown, and that a signed initramfs boots a second kernel. Test keys are
+ephemeral; no private key is placed in the guest initramfs or package artifacts.
+Artifacts are uploaded only after these tests pass.
 
 After downloading and installing the packages, sign the installed `/boot/vmlinuz-*`
 images locally with `sbctl sign -s <path>`. Re-sign after every kernel update.

@@ -1,0 +1,2 @@
+# Appraise only initramfs read by kexec_file_load, using its security.ima signature.
+appraise func=KEXEC_INITRAMFS_CHECK appraise_type=imasig
