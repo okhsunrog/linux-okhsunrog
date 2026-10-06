@@ -135,6 +135,16 @@ modified command lines and missing initramfs. This does not remove recovery-shel
 or direct-syscall bypasses; firmware Secure Boot must remain disabled until
 those paths and the signed EFI recovery image have been hardened and tested.
 
+Mandatory images also replace automatic ZBM and dracut shells with a diagnostic
+screen offering reboot or poweroff. Direct startup-library failures use the
+same screen. Explicit menu recovery and chroot require the expected pool GUID,
+encryption enabled and its encryption key loaded. This guard uses ZFS state;
+it is not a separate recovery password. The patcher changes only generated
+initramfs files and rejects unsupported upstream layouts before writing them.
+Building this image requires `uv` and `/usr/bin/python` on the build host.
+The manual `tests/recovery-init` and `tests/recovery-qemu.py` harness checks
+ZBM, dracut and source-failure paths in an isolated guest without host disks.
+
 After downloading and installing the packages, sign the installed `/boot/vmlinuz-*`
 images locally with `sbctl sign -s <path>`. Re-sign after every kernel update.
 ZFSBootMenu's complete EFI image also needs a signature after every `generate-zbm`.

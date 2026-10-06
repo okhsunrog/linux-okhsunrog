@@ -1,0 +1,13 @@
+#!/bin/bash
+export PATH=/usr/bin:/usr/sbin:/bin:/sbin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+# shellcheck disable=SC1091
+case " $(cat /proc/cmdline) " in
+    *' recovery_test=zbm '*) source /lib/zfsbootmenu-core.sh; emergency_shell 'Simulated locked-dataset failure' ;;
+    *' recovery_test=dracut '*) source /lib/dracut-lib.sh; _emergency_shell 'Simulated early dracut failure' ;;
+    *' recovery_test=source '*) mv /etc/zfsbootmenu.conf /etc/zfsbootmenu.conf.saved; exec /libexec/zfsbootmenu-init ;;
+esac
+echo RECOVERY_TEST_UNEXPECTED_RETURN
+poweroff -f

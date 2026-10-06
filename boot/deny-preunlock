@@ -1,0 +1,21 @@
+#!/bin/bash
+# No startup libraries or evaluated input: this must also handle source failures.
+set -u
+console=${control_term:-/dev/console}
+exec 0<>"$console"
+exec 1>&0 2>&0
+stty sane 2>/dev/null || true
+printf '\nZBM recovery: automatic shell is disabled.\n%s\n' "${*:-Boot initialization failed}"
+printf 'Use authenticated menu recovery or a trusted rescue medium.\n'
+while :; do
+    printf '[R] reboot  [P] power off: '
+    choice=''
+    if ! IFS= read -r -n 1 choice; then sleep 1; continue; fi
+    printf '\n'
+    case "$choice" in
+        r|R) sync; printf b > /proc/sysrq-trigger ;;
+        p|P) sync; printf o > /proc/sysrq-trigger ;;
+        *) continue ;;
+    esac
+    printf 'Power action failed; use the physical power button.\n'
+done
