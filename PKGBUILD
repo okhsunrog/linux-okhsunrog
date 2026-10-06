@@ -618,8 +618,7 @@ prepare() {
         --disable IMA_DEFAULT_HASH_SHA1 \
         --enable MODULE_SIG_KEY_TYPE_RSA --disable MODULE_SIG_KEY_TYPE_ECDSA
     local lsm_list
-    lsm_list=$(scripts/config --get-val LSM)
-    lsm_list=${lsm_list#\"}; lsm_list=${lsm_list%\"}
+    lsm_list=$(scripts/config --state LSM)
     case ",$lsm_list," in
         *,ima,*) ;;
         *) scripts/config --set-str LSM "$lsm_list,ima" ;;
@@ -650,7 +649,7 @@ prepare() {
     for required_config in CONFIG_IMA=y CONFIG_IMA_APPRAISE=y CONFIG_IMA_READ_POLICY=y \
         CONFIG_IMA_LOAD_X509=y CONFIG_IMA_ARCH_POLICY=y \
         CONFIG_IMA_KEYRINGS_PERMIT_SIGNED_BY_BUILTIN_OR_SECONDARY=y \
-        CONFIG_IMA_DEFAULT_HASH=\"sha256\" CONFIG_MODULE_SIG_KEY_TYPE_RSA=y; do
+        'CONFIG_IMA_DEFAULT_HASH="sha256"' CONFIG_MODULE_SIG_KEY_TYPE_RSA=y; do
         grep -qx "$required_config" .config || _die "Required IMA setting missing: $required_config"
     done
     grep -q '^CONFIG_LSM="\([^" ]*,\)\?ima\(,[^" ]*\)\?"$' .config ||
