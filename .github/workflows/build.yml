@@ -21,6 +21,8 @@ jobs:
       image: archlinux:base-devel
       options: --privileged
     timeout-minutes: 350
+    env:
+      CCACHE_PROFILE: ${{ inputs.enforce_signatures && 'enforced' || 'standard' }}
 
     steps:
       - name: Free up disk space on the host
@@ -60,11 +62,15 @@ jobs:
             --profile minimal -c rust-src -c rustfmt
 
       - name: Restore ccache
-        uses: actions/cache@v4
+        id: ccache-restore
+        uses: actions/cache/restore@v4
         with:
           path: /home/builder/.ccache
-          key: ccache-${{ runner.os }}-${{ hashFiles('PKGBUILD','config') }}
+          # Cache entries are immutable; every run saves a fresh generation.
+          key: ccache-v2-${{ runner.os }}-${{ env.CCACHE_PROFILE }}-${{ hashFiles('PKGBUILD','config','secureboot-trusted.pem') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
+            ccache-v2-${{ runner.os }}-${{ env.CCACHE_PROFILE }}-${{ hashFiles('PKGBUILD','config','secureboot-trusted.pem') }}-
+            ccache-v2-${{ runner.os }}-${{ env.CCACHE_PROFILE }}-
             ccache-${{ runner.os }}-
 
       - name: Configure ccache
@@ -75,6 +81,7 @@ jobs:
           sudo -u builder ccache -z
 
       - name: Build kernel packages
+        id: build-kernel
         # NOTE: _processor_opt=meteorlake injects -march=meteorlake -mtune=meteorlake
         # via KCFLAGS so the kernel is tuned for the *target* CPU (the dev's MTL laptop),
         # not for whichever runner happens to host this job. Identical to a local
@@ -93,6 +100,13 @@ jobs:
             _secureboot_cert=secureboot-trusted.pem \
             _secureboot_enforce="$secureboot_enforce" \
             makepkg -s --noconfirm --noprogressbar
+
+      - name: Save ccache after compilation
+        if: ${{ !cancelled() && steps.build-kernel.outcome == 'success' }}
+        uses: actions/cache/save@v4
+        with:
+          path: /home/builder/.ccache
+          key: ${{ steps.ccache-restore.outputs.cache-primary-key }}
 
       - name: Verify Rust external module development support
         run: |
