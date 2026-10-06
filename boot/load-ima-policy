@@ -5,6 +5,10 @@ policy=/sys/kernel/security/integrity/ima/policy
 mountpoint -q /sys/kernel/security || mount -t securityfs securityfs /sys/kernel/security
 [[ -e $policy ]] || policy=/sys/kernel/security/ima/policy
 [[ -e $policy ]] || { echo 'IMA policy interface unavailable' >&2; exit 1; }
+# Require the embedded certificate to be accepted by the restricted keyring
+# before installing a rule that would otherwise reject every initramfs.
+keyctl padd asymmetric '' %keyring:.ima < /etc/keys/x509_ima.der >/dev/null
 keyctl list %keyring:.ima
 cat /etc/zbm-ima-policy > "$policy"
-grep -Fx 'appraise func=KEXEC_INITRAMFS_CHECK appraise_type=imasig' "$policy"
+# The kernel's policy readback adds whitespace after the final field.
+grep -E '^appraise[[:space:]]+func=KEXEC_INITRAMFS_CHECK[[:space:]]+appraise_type=imasig[[:space:]]*$' "$policy"

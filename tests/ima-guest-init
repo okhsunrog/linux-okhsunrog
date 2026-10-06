@@ -32,7 +32,7 @@ echo "IMA_TEST_SIGNATURE_LENGTH: ${#signature}"
 # Modify contents after signing; the signature must no longer validate.
 printf X | dd of=/run/tampered bs=1 seek=10 conv=notrunc
 /bin/setfattr -n security.ima -v "$(cat /fixtures/wrong.hex)" /run/wrong-key || fail 'label wrong key'
-cat /ima-policy > "$policy" || fail 'policy load'
+/usr/local/libexec/zbm-load-ima-policy || fail 'policy load'
 for kind in unsigned tampered wrong-key; do
     if kexec -s -l /kernel --initrd="/run/$kind" --append='console=ttyS0 ima_test=second'; then
         fail "$kind initramfs unexpectedly accepted"

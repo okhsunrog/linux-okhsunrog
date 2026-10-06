@@ -9,7 +9,7 @@ done
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 root=$work/root
-mkdir -p "$root"/{bin,proc,sys,dev,run,etc/keys,fixtures}
+mkdir -p "$root"/{bin,proc,sys,dev,run,etc/keys,fixtures,usr/local/libexec}
 copy_binary() {
     local binary=$1 lib
     install -Dm755 "$binary" "$root/bin/$(basename "$binary")"
@@ -18,13 +18,15 @@ copy_binary() {
     done < <(ldd "$binary" 2>/dev/null | awk '/=> \// {print $3} /^[[:space:]]*\// {print $1}')
 }
 copy_binary "$(command -v busybox)"
+copy_binary "$(command -v bash)"
 copy_binary "$(command -v kexec)"
 copy_binary "$(command -v keyctl)"
 copy_binary "$(command -v setfattr)"
 copy_binary "$(command -v getfattr)"
-for app in sh mount cat cp dd poweroff sleep grep dmesg cut; do ln -s busybox "$root/bin/$app"; done
+for app in sh mount mountpoint cat cp dd poweroff sleep grep dmesg cut; do ln -s busybox "$root/bin/$app"; done
 install -m755 "$repo/tests/ima-guest-init" "$root/init"
-install -m644 "$repo/boot/ima-policy" "$root/ima-policy"
+install -m644 "$repo/boot/ima-policy" "$root/etc/zbm-ima-policy"
+install -m755 "$repo/boot/load-ima-policy" "$root/usr/local/libexec/zbm-load-ima-policy"
 install -m644 "$source_dir/certs/signing_key.x509" "$root/etc/keys/x509_ima.der"
 awk '/-----BEGIN CERTIFICATE-----/{n++} n==3 {print} /-----END CERTIFICATE-----/ && n==3 {exit}' \
     "$repo/secureboot-trusted.pem" > "$work/owner-ima.pem"

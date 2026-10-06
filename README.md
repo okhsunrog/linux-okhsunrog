@@ -114,7 +114,9 @@ in the currently installed audit image. The early hook refuses to continue if
 the key or policy cannot be initialized.
 
 CI builds a pinned upstream evmctl and runs `tests/ima-xattr.sh`, then boots the
-new kernel in QEMU. `tests/ima-kexec.sh` checks that unsigned, modified and
+new kernel in QEMU. The guest uses `boot/load-ima-policy` to verify certificate
+acceptance and the kernel's policy readback before testing kexec.
+`tests/ima-kexec.sh` checks that unsigned, modified and
 wrong-key initramfs files are rejected, that legacy kexec is blocked under
 lockdown, and that a signed initramfs boots a second kernel. Test keys are
 ephemeral; no private key is placed in the guest initramfs or package artifacts.
