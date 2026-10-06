@@ -25,13 +25,13 @@ cp /fixtures/good /run/wrong-key
 signature=$(cat /fixtures/good.hex)
 echo "IMA_TEST_SIGNATURE_PREFIX: $(printf '%s' "$signature" | cut -c1-20)"
 echo "IMA_TEST_SIGNATURE_LENGTH: ${#signature}"
-setfattr -n user.ima-test -v "$signature" /run/good || fail 'decode signature in user xattr'
-getfattr -n user.ima-test -e hex /run/good
-setfattr -n security.ima -v "$signature" /run/good || fail 'label good'
-setfattr -n security.ima -v "$(cat /fixtures/good.hex)" /run/tampered || fail 'label tampered'
+/bin/setfattr -n user.ima-test -v "$signature" /run/good || fail 'decode signature in user xattr'
+/bin/getfattr -n user.ima-test -e hex /run/good
+/bin/setfattr -n security.ima -v "$signature" /run/good || fail 'label good'
+/bin/setfattr -n security.ima -v "$(cat /fixtures/good.hex)" /run/tampered || fail 'label tampered'
 # Modify contents after signing; the signature must no longer validate.
 printf X | dd of=/run/tampered bs=1 seek=10 conv=notrunc
-setfattr -n security.ima -v "$(cat /fixtures/wrong.hex)" /run/wrong-key || fail 'label wrong key'
+/bin/setfattr -n security.ima -v "$(cat /fixtures/wrong.hex)" /run/wrong-key || fail 'label wrong key'
 cat /ima-policy > "$policy" || fail 'policy load'
 for kind in unsigned tampered wrong-key; do
     if kexec -s -l /kernel --initrd="/run/$kind" --append='console=ttyS0 ima_test=second'; then
