@@ -1,0 +1,96 @@
+#!/bin/bash
+# The immutable image marker selects mandatory verification; audit stays permissive.
+set -uo pipefail
+enforce=0
+[[ ! -e /etc/zbm-enforce ]] || enforce=1
+kernel='' initramfs='' cmdline='' loading=0 unsupported=0 legacy=0 executing=0
+kernel_index=-1 initramfs_index=-1 cmdline_index=-1
+stage=''
+cleanup() {
+    if [[ -n $stage ]]; then
+        rm -- "$stage/kernel" "$stage/initramfs" "$stage/kernel.zbm-policy" "$stage/kernel.zbm-policy.sig" 2>/dev/null || true
+        rmdir -- "$stage" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+args=("$@")
+for ((i=0; i<${#args[@]}; i++)); do
+    case ${args[i]} in
+        -l|--load)
+            ((loading == 0)) || unsupported=1
+            loading=1; ((i+=1)); kernel=${args[i]:-}; kernel_index=$i ;;
+        -a|-s|--kexec-syscall-auto|--kexec-file-syscall) ;;
+        -c|--kexec-syscall) legacy=1 ;;
+        -e|--exec) executing=1 ;;
+        -i|--no-ifdown) ;;
+        --initrd=*)
+            ((initramfs_index < 0)) || unsupported=1
+            initramfs=${args[i]#*=}; initramfs_index=$i ;;
+        --command-line=*)
+            ((cmdline_index < 0)) || unsupported=1
+            cmdline=${args[i]#*=}; cmdline_index=$i ;;
+        *) unsupported=1 ;;
+    esac
+done
+if ((enforce && (!loading || executing || legacy || unsupported))); then
+    # ZBM executes a previously verified load with exactly -e -i.
+    if ((loading == 0 && executing && unsupported == 0 && legacy == 0)) &&
+       [[ ${args[*]} == '-e -i' ]]; then
+        exec /usr/local/libexec/zbm-kexec-real "${args[@]}"
+    fi
+    echo 'ZBM verification: FAIL (unsupported or legacy kexec request)' >&2
+    exit 1
+fi
+if ((loading)); then
+    check_kernel=$kernel check_initramfs=$initramfs
+    detail='Unsupported arguments or caller-supplied audit ID'
+    if ((enforce)); then
+        # Verify the private copies that kexec will actually read. This also
+        # preserves security.ima when loading from a read-only ZFS snapshot.
+        if stage=$(mktemp -d /run/zbm-load.XXXXXX) &&
+           cp -- "$kernel" "$stage/kernel" &&
+           cp --preserve=xattr -- "$initramfs" "$stage/initramfs" &&
+           cp -- "${kernel}.zbm-policy" "$stage/kernel.zbm-policy" &&
+           cp -- "${kernel}.zbm-policy.sig" "$stage/kernel.zbm-policy.sig"; then
+            check_kernel=$stage/kernel check_initramfs=$stage/initramfs
+        else
+            unsupported=1
+            detail='Unable to stage signed boot files'
+        fi
+    fi
+    if ((unsupported == 0)) && [[ $cmdline != *zbm.audit_id=* ]] &&
+       detail=$(/usr/local/libexec/zbm-verify-boot "$check_kernel" "$check_initramfs" "$cmdline" /etc/zbm-verification.pem 2>&1); then
+        result=PASS
+    else
+        result=FAIL
+    fi
+    emit_result() {
+        echo "ZBM verification: $result" >&2
+        printf '\nZBM verification: %s\n' "$result" > /dev/console 2>/dev/null || true
+        printf '<5>ZBM verification: %s\n' "$result" > /dev/kmsg 2>/dev/null || true
+    }
+    if ((enforce == 0)) || [[ $result != PASS ]]; then emit_result; fi
+    if ((enforce)) && [[ $result != PASS ]]; then
+        printf '%s\n' "$detail" >&2
+        exit 1
+    fi
+    if ((cmdline_index >= 0)) && IFS= read -r attempt_id < /proc/sys/kernel/random/uuid; then
+        args[cmdline_index]="--command-line=$cmdline zbm.audit_id=$attempt_id"
+        if ! /usr/local/libexec/zbm-save-audit "$attempt_id" "$result" "$kernel" "$initramfs" "$cmdline zbm.audit_id=$attempt_id" "$detail"; then
+            echo 'ZBM audit: could not persist report' >&2
+        fi
+    fi
+    if ((enforce)); then
+        args[kernel_index]=$check_kernel
+        args[initramfs_index]="--initrd=$check_initramfs"
+        for ((i=0; i<${#args[@]}; i++)); do
+            case ${args[i]} in -a|--kexec-syscall-auto) args[i]=-s ;; esac
+        done
+        /usr/local/libexec/zbm-kexec-real "${args[@]}"
+        status=$?
+        if ((status != 0)); then result=FAIL; fi
+        emit_result
+        exit "$status"
+    fi
+fi
+exec /usr/local/libexec/zbm-kexec-real "${args[@]}"

@@ -1,0 +1,59 @@
+#!/bin/bash
+# Reports are diagnostic input, never authorization to boot or unlock a key.
+set -euo pipefail
+mountdir=''
+if [[ $# == 0 ]]; then
+    mountdir=/run/zbm-audit/esp
+    mkdir -p "$mountdir"
+    mount -t vfat -o rw,nosuid,nodev,noexec,umask=0077 /dev/disk/by-uuid/05E8-D496 "$mountdir"
+    trap 'umount "$mountdir"' EXIT
+    reportdir=$mountdir/EFI/ZBM/audit
+    cmdline_file=/proc/cmdline
+    statedir=/var/lib/zbm-audit
+elif [[ $# == 3 ]]; then
+    # Offline verification with a fixture directory; no mounts or firmware writes.
+    reportdir=$1 cmdline_file=$2 statedir=$3
+else
+    echo 'usage: import-audit [REPORT_DIR CMDLINE_FILE STATE_DIR]' >&2
+    exit 2
+fi
+umask 077
+mkdir -p "$statedir"
+cmdline=$(cat "$cmdline_file")
+attempt_id=''
+if [[ $cmdline =~ \ zbm\.audit_id=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$ ]]; then
+    attempt_id=${BASH_REMATCH[1]}
+    rest=${cmdline% zbm.audit_id=*}
+    if [[ $rest == *zbm.audit_id=* ]]; then attempt_id=''; fi
+fi
+matched=0
+shopt -s nullglob
+for report in "$reportdir"/pending-*.json; do
+    filename=${report##*/}
+    [[ $filename =~ ^pending-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$ ]] || continue
+    report_id=${BASH_REMATCH[1]}
+    if [[ ! -f $report || -L $report ]] || (( $(stat -c %s "$report") > 32768 )); then
+        echo "Rejected oversized or invalid report: $report_id"
+        continue
+    fi
+    tmp=$(mktemp "$statedir/.import.XXXXXX")
+    cp "$report" "$tmp"
+    if ! jq -e -s --arg id "$report_id" 'length == 1 and (.[0] | .schema == 1 and .id == $id and (.result == "PASS" or .result == "FAIL") and (.mode == "audit" or .mode == "enforce") and (.cmdline|type == "string") and (.detail|type == "string") and (.kernel_sha256|type == "string") and (.initramfs_sha256|type == "string"))' "$tmp" >/dev/null 2>&1; then
+        echo "Rejected malformed report: $report_id"
+        mv "$tmp" "$statedir/rejected-$report_id.json"
+    elif [[ $report_id != "$attempt_id" ]] || [[ $(jq -r .cmdline "$tmp") != "$cmdline" ]]; then
+        echo "Stale or mismatched report ignored: $report_id"
+        mv "$tmp" "$statedir/stale-$report_id.json"
+    else
+        matched=1
+        jq -c '{id,result,mode,created_utc,kernel,initramfs,kernel_sha256,initramfs_sha256,cmdline,detail}' "$tmp"
+        mv "$tmp" "$statedir/current-$report_id.json"
+    fi
+    sync -f "$statedir"
+    rm "$report"
+done
+[[ -z $mountdir ]] || sync -f "$reportdir" 2>/dev/null || true
+if ((matched == 0)); then
+    if [[ -z $attempt_id ]]; then echo 'No valid audit ID in this boot; no current ZBM result.'
+    else echo "No matching ZBM report for this boot: $attempt_id"; fi
+fi

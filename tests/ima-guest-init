@@ -34,15 +34,27 @@ printf X | dd of=/run/tampered bs=1 seek=10 conv=notrunc
 /bin/setfattr -n security.ima -v "$(cat /fixtures/wrong.hex)" /run/wrong-key || fail 'label wrong key'
 /usr/local/libexec/zbm-load-ima-policy || fail 'policy load'
 for kind in unsigned tampered wrong-key; do
-    if kexec -s -l /kernel --initrd="/run/$kind" --append='console=ttyS0 ima_test=second'; then
+    if /bin/kexec -a -l /kernel --initrd="/run/$kind" --command-line='root=ZFS=novafs/test console=ttyS0 ima_test=second'; then
         fail "$kind initramfs unexpectedly accepted"
     fi
     echo "IMA_TEST_REJECTED_$kind"
 done
-if kexec -c -l /kernel --initrd=/run/good --append='console=ttyS0 ima_test=second'; then
+if /bin/kexec -c -l /kernel --initrd=/run/good --command-line='root=ZFS=novafs/test console=ttyS0 ima_test=second'; then
     fail 'legacy kexec_load unexpectedly accepted under lockdown'
 fi
 echo IMA_TEST_LEGACY_KEXEC_REJECTED
-kexec -s -l /kernel --initrd=/run/good --append='console=ttyS0 ima_test=second' || fail 'valid signed initramfs rejected'
+if /usr/local/libexec/zbm-kexec-real -c -l /kernel --initrd=/run/good --append='console=ttyS0 ima_test=second'; then
+    fail 'kernel accepted direct legacy kexec_load under lockdown'
+fi
+echo IMA_TEST_LEGACY_SYSCALL_REJECTED
+if /bin/kexec -a -l /kernel --initrd=/run/good --command-line='root=ZFS=novafs/test console=ttyS0 ima_test=second init=/bin/sh'; then
+    fail 'modified command line accepted'
+fi
+echo IMA_TEST_CMDLINE_REJECTED
+if /bin/kexec -a -l /kernel --command-line='root=ZFS=novafs/test console=ttyS0 ima_test=second'; then
+    fail 'missing initramfs accepted'
+fi
+echo IMA_TEST_MISSING_INITRAMFS_REJECTED
+/bin/kexec -a -l /kernel --initrd=/run/good --command-line='root=ZFS=novafs/test console=ttyS0 ima_test=second' || fail 'valid signed initramfs rejected'
 echo IMA_TEST_VALID_LOAD
-kexec -e || fail 'kexec execution failed'
+/bin/kexec -e -i || fail 'kexec execution failed'

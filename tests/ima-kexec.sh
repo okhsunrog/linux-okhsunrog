@@ -19,14 +19,23 @@ copy_binary() {
 }
 copy_binary "$(command -v busybox)"
 copy_binary "$(command -v bash)"
+copy_binary "$(command -v cp)"
+copy_binary "$(command -v openssl)"
+copy_binary "$(command -v sha256sum)"
+copy_binary "$(command -v mktemp)"
 copy_binary "$(command -v kexec)"
 copy_binary "$(command -v keyctl)"
 copy_binary "$(command -v setfattr)"
 copy_binary "$(command -v getfattr)"
-for app in sh mount mountpoint cat cp dd poweroff sleep grep dmesg cut; do ln -s busybox "$root/bin/$app"; done
+for app in sh mount mountpoint cat dd poweroff sleep grep dmesg cut mkdir rm rmdir; do ln -s busybox "$root/bin/$app"; done
 install -m755 "$repo/tests/ima-guest-init" "$root/init"
 install -m644 "$repo/boot/ima-policy" "$root/etc/zbm-ima-policy"
 install -m755 "$repo/boot/load-ima-policy" "$root/usr/local/libexec/zbm-load-ima-policy"
+install -m755 "$repo/boot/kexec-verify" "$root/bin/kexec"
+install -m755 "$(command -v kexec)" "$root/usr/local/libexec/zbm-kexec-real"
+install -m755 "$repo/boot/verify-boot" "$root/usr/local/libexec/zbm-verify-boot"
+install -m755 "$repo/boot/save-audit" "$root/usr/local/libexec/zbm-save-audit"
+: > "$root/etc/zbm-enforce"
 install -m644 "$source_dir/certs/signing_key.x509" "$root/etc/keys/x509_ima.der"
 awk '/-----BEGIN CERTIFICATE-----/{n++} n==3 {print} /-----END CERTIFICATE-----/ && n==3 {exit}' \
     "$repo/secureboot-trusted.pem" > "$work/owner-ima.pem"
@@ -45,6 +54,10 @@ cp "$work/second.img" "$work/wrong"
 install -m644 "$work/kernel" "$root/kernel"
 install -m644 "$work/good" "$root/fixtures/good"
 install -m644 "$work/second.img" "$root/fixtures/unsigned"
+kh=$(sha256sum "$work/kernel"); ih=$(sha256sum "$work/good")
+printf 'ZBM-POLICY-v1\n%s\n%s\nroot=ZFS=novafs/\nconsole=ttyS0 ima_test=second\n' "${kh%% *}" "${ih%% *}" > "$root/kernel.zbm-policy"
+openssl dgst -sha256 -sign "$source_dir/certs/signing_key.pem" -out "$root/kernel.zbm-policy.sig" "$root/kernel.zbm-policy"
+openssl x509 -in "$work/build.pem" -pubkey -noout > "$root/etc/zbm-verification.pem"
 for kind in good wrong; do
     printf 0x > "$root/fixtures/$kind.hex"
     od -An -v -tx1 "$work/$kind.sig" | tr -d ' \n' >> "$root/fixtures/$kind.hex"
@@ -72,7 +85,7 @@ cat "$work/console.log"
 install -m644 "$work/console.log" "$diagnostics/console.log"
 [[ $status == 0 ]] || { echo "QEMU failed or timed out: $status" >&2; exit 1; }
 if grep -q IMA_TEST_FAIL "$work/console.log"; then exit 1; fi
-for marker in OWNER_KEYS_TRUSTED REJECTED_unsigned REJECTED_tampered REJECTED_wrong-key LEGACY_KEXEC_REJECTED VALID_LOAD SECOND_KERNEL_BOOTED; do
+for marker in OWNER_KEYS_TRUSTED REJECTED_unsigned REJECTED_tampered REJECTED_wrong-key LEGACY_KEXEC_REJECTED LEGACY_SYSCALL_REJECTED CMDLINE_REJECTED MISSING_INITRAMFS_REJECTED VALID_LOAD SECOND_KERNEL_BOOTED; do
     grep -q "IMA_TEST_$marker" "$work/console.log" || { echo "Missing marker: $marker" >&2; exit 1; }
 done
 echo 'IMA guest tests passed'

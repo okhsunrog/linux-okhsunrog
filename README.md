@@ -110,7 +110,7 @@ before enforcement.
 `boot/sign-initramfs` is installed as `zbm-sign-initramfs`. The prepared
 `boot/module-setup.sh` includes the certificate, policy and early hook only when
 `zbm_ima=yes` is explicitly set in the ZBM dracut configuration. It is not enabled
-in the currently installed audit image. The early hook refuses to continue if
+by default. The early hook refuses to continue if
 the key or policy cannot be initialized.
 
 CI builds a pinned upstream evmctl and runs `tests/ima-xattr.sh`, then boots the
@@ -121,6 +121,19 @@ wrong-key initramfs files are rejected, that legacy kexec is blocked under
 lockdown, and that a signed initramfs boots a second kernel. Test keys are
 ephemeral; no private key is placed in the guest initramfs or package artifacts.
 Artifacts are uploaded only after these tests pass.
+
+`zbm_enforce=yes` also embeds a mandatory-verification marker. It requires
+`zbm_ima=yes` and a kernel with forced module/kexec signatures and integrity
+lockdown. `boot/kexec-verify` rejects invalid manifests, changed command lines,
+missing initramfs and legacy loading. It stages private copies, preserving IMA
+attributes, verifies those copies and uses only `kexec_file_load`. The PASS
+message follows a successful kernel load. The default marker-free mode remains
+permissive for audit deployments. Boot reports distinguish both modes.
+
+The QEMU gate exercises this wrapper and the actual policy loader, including
+modified command lines and missing initramfs. This does not remove recovery-shell
+or direct-syscall bypasses; firmware Secure Boot must remain disabled until
+those paths and the signed EFI recovery image have been hardened and tested.
 
 After downloading and installing the packages, sign the installed `/boot/vmlinuz-*`
 images locally with `sbctl sign -s <path>`. Re-sign after every kernel update.

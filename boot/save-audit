@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+[[ $# == 6 ]] || exit 2
+attempt_id=$1 result=$2 kernel=$3 initramfs=$4 cmdline=$5 detail=$6
+mode=audit
+[[ ! -e /etc/zbm-enforce ]] || mode=enforce
+[[ $attempt_id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || exit 1
+[[ $result == PASS || $result == FAIL ]] || exit 1
+mountdir=/run/zbm-audit-esp
+mkdir -p "$mountdir"
+mount -t vfat -o rw,nosuid,nodev,noexec,umask=0077 /dev/disk/by-uuid/05E8-D496 "$mountdir"
+tmp=''
+cleanup() { [[ -z $tmp ]] || rm -f "$tmp"; umount "$mountdir"; }
+trap cleanup EXIT
+reportdir=$mountdir/EFI/ZBM/audit
+mkdir -p "$reportdir"
+tmp=$(mktemp "$reportdir/.report.XXXXXX")
+kh=$(sha256sum -- "$kernel" 2>/dev/null) || kh='unavailable'
+ih=$(sha256sum -- "$initramfs" 2>/dev/null) || ih='unavailable'
+jq -n --arg id "$attempt_id" --arg result "$result" --arg kernel "$kernel" --arg initramfs "$initramfs" \
+    --arg cmdline "$cmdline" --arg detail "${detail:0:8192}" --arg created "$(date -u +%FT%TZ)" \
+    --arg kh "${kh%% *}" --arg ih "${ih%% *}" --arg mode "$mode" \
+    '{schema:1,id:$id,result:$result,created_utc:$created,kernel:$kernel,initramfs:$initramfs,kernel_sha256:$kh,initramfs_sha256:$ih,cmdline:$cmdline,detail:$detail,mode:$mode}' > "$tmp"
+chmod 600 "$tmp"
+sync -f "$tmp"
+mv "$tmp" "$reportdir/pending-$attempt_id.json"
+tmp=''
+sync -f "$reportdir"
