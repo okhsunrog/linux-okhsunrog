@@ -13,6 +13,7 @@ upstream/
 *.pkg.tar.zst
 *.pkg.tar.zst.sig
 *.log
+ima-test-artifacts/
 .SRCINFO
 
 # generated configs (PKGBUILD writes config-<pkgver>-<pkgrel>-<suffix> after build)

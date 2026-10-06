@@ -21,7 +21,8 @@ copy_binary "$(command -v busybox)"
 copy_binary "$(command -v kexec)"
 copy_binary "$(command -v keyctl)"
 copy_binary "$(command -v setfattr)"
-for app in sh mount cat cp dd poweroff sleep grep; do ln -s busybox "$root/bin/$app"; done
+copy_binary "$(command -v getfattr)"
+for app in sh mount cat cp dd poweroff sleep grep dmesg cut; do ln -s busybox "$root/bin/$app"; done
 install -m755 "$repo/tests/ima-guest-init" "$root/init"
 install -m644 "$repo/boot/ima-policy" "$root/ima-policy"
 install -m644 "$source_dir/certs/signing_key.x509" "$root/etc/keys/x509_ima.der"
@@ -46,7 +47,17 @@ for kind in good wrong; do
     printf 0x > "$root/fixtures/$kind.hex"
     od -An -v -tx1 "$work/$kind.sig" | tr -d ' \n' >> "$root/fixtures/$kind.hex"
 done
+# Check the same hexadecimal transport used inside the guest before booting.
+setfattr -n user.ima-test -v "$(cat "$root/fixtures/good.hex")" "$work/good"
+getfattr --only-values -n user.ima-test "$work/good" > "$work/decoded.sig"
+cmp "$work/good.sig" "$work/decoded.sig"
 (cd "$root"; find . -print0 | cpio --null -o -H newc --quiet | gzip -n) > "$work/first.img"
+diagnostics=$repo/ima-test-artifacts
+mkdir -p "$diagnostics"
+# Public boot inputs only: retain them so a failed guest can be rerun locally.
+install -m644 "$source_dir/arch/x86/boot/bzImage" "$diagnostics/bzImage"
+install -m644 "$source_dir/.config" "$diagnostics/kernel.config"
+install -m644 "$work/first.img" "$diagnostics/first.img"
 set +e
 timeout 180 qemu-system-x86_64 -machine q35,accel=tcg -cpu max -m 1024 -smp 2 \
     -nodefaults -nographic -no-reboot -monitor none -serial stdio \
@@ -56,6 +67,7 @@ timeout 180 qemu-system-x86_64 -machine q35,accel=tcg -cpu max -m 1024 -smp 2 \
 status=$?
 set -e
 cat "$work/console.log"
+install -m644 "$work/console.log" "$diagnostics/console.log"
 [[ $status == 0 ]] || { echo "QEMU failed or timed out: $status" >&2; exit 1; }
 if grep -q IMA_TEST_FAIL "$work/console.log"; then exit 1; fi
 for marker in OWNER_KEYS_TRUSTED REJECTED_unsigned REJECTED_tampered REJECTED_wrong-key LEGACY_KEXEC_REJECTED VALID_LOAD SECOND_KERNEL_BOOTED; do

@@ -4,7 +4,7 @@ mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
 mount -t securityfs securityfs /sys/kernel/security
-fail() { echo "IMA_TEST_FAIL: $*"; poweroff -f; while :; do sleep 1; done; }
+fail() { echo "IMA_TEST_FAIL: $*"; dmesg; poweroff -f; while :; do sleep 1; done; }
 case " $(cat /proc/cmdline) " in
     *' ima_test=second '*) echo IMA_TEST_SECOND_KERNEL_BOOTED; poweroff -f; while :; do sleep 1; done ;;
 esac
@@ -22,7 +22,12 @@ cp /fixtures/good /run/good
 cp /fixtures/unsigned /run/unsigned
 cp /fixtures/good /run/tampered
 cp /fixtures/good /run/wrong-key
-setfattr -n security.ima -v "$(cat /fixtures/good.hex)" /run/good || fail 'label good'
+signature=$(cat /fixtures/good.hex)
+echo "IMA_TEST_SIGNATURE_PREFIX: $(printf '%s' "$signature" | cut -c1-20)"
+echo "IMA_TEST_SIGNATURE_LENGTH: ${#signature}"
+setfattr -n user.ima-test -v "$signature" /run/good || fail 'decode signature in user xattr'
+getfattr -n user.ima-test -e hex /run/good
+setfattr -n security.ima -v "$signature" /run/good || fail 'label good'
 setfattr -n security.ima -v "$(cat /fixtures/good.hex)" /run/tampered || fail 'label tampered'
 # Modify contents after signing; the signature must no longer validate.
 printf X | dd of=/run/tampered bs=1 seek=10 conv=notrunc

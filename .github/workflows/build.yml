@@ -172,6 +172,15 @@ jobs:
           bash tests/ima-xattr.sh /tmp/ima-evm-utils/src/evmctl "$source_dir/certs/signing_key.pem" /tmp/ima-build-cert.pem "$source_dir/certs/signing_key.x509"
           bash tests/ima-kexec.sh "$source_dir" /tmp/ima-evm-utils/src/evmctl
 
+      - name: Upload IMA test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ima-test-diagnostics
+          path: ima-test-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: ccache stats
         if: always()
         run: sudo -u builder ccache -s
