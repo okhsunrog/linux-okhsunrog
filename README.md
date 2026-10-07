@@ -59,6 +59,19 @@ Same as Linux kernel: GPL-2.0-only.
 
 ## Secure Boot preparation
 
+The machine-specific deployment history, key layout, recovery changes, signed IMA
+policy fix, firmware enrollment and physical acceptance are recorded in
+[Framework Secure Boot notes](docs/framework-secure-boot.md) (Russian). The notes
+also describe the signed Rust EFI-variable recovery module, normal module autoload
+in the host/initramfs, and the TPM SRK check with the temporary NvPCR workaround.
+Automatic early recovery and TPM SRK setup passed on the physical boot. The new
+signed NvPCR policy passed isolated direct/kexec tests. The subsequent physical
+boot exposed limited TPM RAM and an allocation-order problem; local NvPCR
+priorities now allocate hardware/login measurements before unused verity. The
+adjusted initramfs passed the physical boot at 05:10:25: hardware, cryptsetup and
+login initialized, product-ID/user-login measurements succeeded, verity was
+gracefully skipped, and no systemd units failed.
+
 The kernel keeps EFI boot, PE signature verification for `kexec_file_load`,
 platform/secondary trust keyrings, module signatures and lockdown support enabled.
 The recipe checks these settings during preparation. This does **not** enable
@@ -144,6 +157,32 @@ initramfs files and rejects unsupported upstream layouts before writing them.
 Building this image requires `uv` and `/usr/bin/python` on the build host.
 The manual `tests/recovery-init` and `tests/recovery-qemu.py` harness checks
 ZBM, dracut and source-failure paths in an isolated guest without host disks.
+
+If discovery finds no bootable environments, protected recovery lists the reason
+for each rejected candidate: key not loaded, mount failed, or no matching
+kernel/initramfs pair. `[M] retry boot menu` repeats discovery and key entry without
+rebooting; it does not change mandatory signature/IMA checks or open a shell.
+This retry is available only from the initialized discovery path. Early ZBM,
+dracut and startup-library failures still offer reboot/poweroff only. The isolated
+recovery harness also checks exhausted key attempts, real mount failure and
+missing boot artifacts followed by a successful retry with a RAM-backed encrypted
+ZFS fixture. Fixture artifacts test discovery, not a signed OS handoff.
+
+Firmware Secure Boot also requires signed IMA policy loading. The local
+`zbm-sign-ima-policy` helper signs `/etc/zfsbootmenu/ima-policy`; dracut embeds its
+detached `.sig`. Early startup restores `security.ima` with attr's `setfattr` and
+writes the policy's absolute pathname to securityfs. Copying policy text directly
+is rejected by the kernel's Secure Boot architecture policy. Mandatory policy
+failure stops at the no-shell diagnostic, rather than automatically rebooting.
+
+The local `tests/ima-secureboot.py` gate uses a disposable OVMF variable store and
+fixture EFI key with firmware Secure Boot actually enabled. It checks signed
+policy loading, unsigned initramfs/legacy kexec rejection and signed second-kernel
+handoff, plus raw, altered, wrong-key and missing-signature policy failures. Run
+as root via `uv run --no-project --python /usr/bin/python tests/ima-secureboot.py
+UNSIGNED_UKI SIGNED_TARGET_KERNEL NEW_RUN_DIRECTORY`. The local IMA signing helper
+signs fixture initramfs bytes outside the guest; no private key or host disk enters
+the VM. This is a firmware-enabled VM gate, not physical Framework acceptance.
 
 After downloading and installing the packages, sign the installed `/boot/vmlinuz-*`
 images locally with `sbctl sign -s <path>`. Re-sign after every kernel update.
