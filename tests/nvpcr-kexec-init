@@ -1,0 +1,28 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# Secret-free ZBM-like first stage. PCR 11 is left at the stub measurement;
+# the second kernel's systemd initrd performs enter-initrd and NvPCR setup.
+set -eu
+export PATH=/usr/bin:/usr/sbin:/bin:/sbin
+trap 'echo EFI_AUTOLOAD_FAIL=kexec-first-stage; busybox poweroff -f' EXIT
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mount -t tmpfs tmpfs /run
+mkdir -p /sys/kernel/security /fixtures
+/usr/local/libexec/zbm-load-ima-policy
+modprobe virtio_pci
+modprobe virtio_blk
+modprobe vfat
+mount -t vfat -o ro /dev/vda1 /fixtures
+cp /fixtures/fixtures/target.img /run/target.img
+signature=$(od -An -v -tx1 /fixtures/fixtures/target.img.sig | tr -d ' \n')
+setfattr -n security.ima -v "0x$signature" /run/target.img
+echo EFI_AUTOLOAD_KEXEC_SIGNED_INITRAMFS
+read -r cmdline < /proc/cmdline
+case=${cmdline##*autoload_case=}
+case=${case%% *}
+[[ $case == nvpcr-kexec || $case == nvpcr-limited-kexec ]]
+kexec -s -l /fixtures/fixtures/kernel --initrd=/run/target.img \
+    --append="console=ttyS0,115200 loglevel=6 panic=-1 rd.systemd.unit=efi-autoload-test.target autoload_case=$case"
+kexec -e

@@ -1,0 +1,81 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# Isolated systemd initrd acceptance; never run on the host.
+set -eu
+export SYSTEMD_PAGER=cat SYSTEMD_COLORS=0
+trap 'systemctl poweroff --force --force' EXIT
+fail() { echo "EFI_AUTOLOAD_FAIL=$*"; exit 1; }
+property() { systemctl show "$2" --property="$1" --value; }
+
+udevadm settle --timeout=20
+state=$(od -An -tu1 -j4 -N1 /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c)
+[[ ${state// /} == 1 ]] || fail secure-boot-disabled
+echo EFI_AUTOLOAD_SECURE_BOOT=1
+case=$(sed -n 's/.*autoload_case=\([^ ]*\).*/\1/p' /proc/cmdline)
+if [[ $case == nvpcr* ]]; then
+    systemctl show systemd-tpm2-setup-early.service systemd-pcrphase-initrd.service -p Id -p ConditionResult -p Conditions -p Result
+    journalctl -b -u systemd-tpm2-setup-early.service -u systemd-pcrphase-initrd.service --no-pager
+    for file in /sys/firmware/efi/efivars/StubPcrKernelImage-*; do
+        [[ ! -e $file ]] || od -An -tu1 "$file"
+    done
+fi
+if [[ $case != unsigned ]]; then
+    [[ -d /sys/module/insyde_efivarfs ]] || fail module-not-loaded
+    [[ $(property Result systemd-modules-load.service) == success ]] || fail loader-failed
+    # Rust's parameter has no sysfs permissions; its value isn't published there.
+    grep -qx 'options insyde_efivarfs expose=1' /etc/modprobe.d/insyde-efivarfs.conf || fail exposure-config-missing
+    echo EFI_AUTOLOAD_SIGNED_MODULE_ACCEPTED
+else
+    [[ ! -d /sys/module/insyde_efivarfs ]] || fail unsigned-module-loaded
+    [[ $(property Result systemd-modules-load.service) == exit-code ]] || fail unsigned-loader-result
+    # Read the kernel ring directly: the loader can fail before journald starts.
+    dmesg | grep -q 'Loading of unsigned module is rejected' || fail signature-rejection-not-confirmed
+    echo EFI_AUTOLOAD_UNSIGNED_MODULE_REJECTED
+fi
+
+loaded=$(property ExecMainExitTimestampMonotonic systemd-modules-load.service)
+for unit in systemd-udevd.service systemd-udev-trigger.service systemd-tpm2-setup-early.service; do
+    started=$(property ExecMainStartTimestampMonotonic "$unit")
+    [[ $loaded -gt 0 && $started -ge $loaded ]] || fail "ordering-$unit"
+done
+echo EFI_AUTOLOAD_ORDERING_PASS
+[[ $(property ConditionResult systemd-tpm2-setup-early.service) == yes ]] || fail measured-os-condition
+[[ -s /run/systemd/tpm2-srk-public-key.pem ]] || fail srk-missing
+status=$(property ExecMainStatus systemd-tpm2-setup-early.service)
+echo "EFI_AUTOLOAD_TPM_STATUS=$status"
+if [[ $case == nvpcr-limited-default ]]; then
+    [[ $(property Result systemd-tpm2-setup-early.service) == success && $status == 73 ]] || fail default-did-not-exhaust
+    for name in hardware cryptsetup verity login; do
+        [[ ! -e /run/systemd/nvpcr/$name.auth ]] || fail "default-initialized-$name"
+    done
+    echo EFI_AUTOLOAD_DEFAULT_PRIORITY_EXHAUSTION_REPRODUCED
+elif [[ $case == nvpcr-limited-kexec ]]; then
+    [[ $(property Result systemd-tpm2-setup-early.service) == success && $status == 73 ]] || fail limited-setup-failed
+    for name in hardware cryptsetup login; do
+        [[ -s /run/systemd/nvpcr/$name.auth ]] || fail "limited-$name-not-initialized"
+    done
+    [[ ! -e /run/systemd/nvpcr/verity.auth ]] || fail verity-unexpectedly-fit
+    systemd-analyze nvpcrs
+    /usr/lib/systemd/systemd-pcrextend --graceful --product-id
+    echo EFI_AUTOLOAD_LIMITED_NVPCR_MIGRATION_PASS
+elif [[ $case == nvpcr || $case == nvpcr-kexec ]]; then
+    [[ $(property Result systemd-tpm2-setup-early.service) == success && $status == 0 ]] || fail nvpcr-setup-failed
+    for name in hardware cryptsetup verity login; do
+        [[ -s /run/systemd/nvpcr/$name.auth ]] || fail "nvpcr-$name-not-initialized"
+    done
+    systemd-analyze nvpcrs
+    echo EFI_AUTOLOAD_NVPCR_INITIALIZED
+elif [[ $case == nvpcr-* ]]; then
+    [[ $(property Result systemd-tpm2-setup-early.service) == exit-code ]] || fail invalid-policy-accepted
+    for name in hardware cryptsetup verity login; do
+        [[ ! -e /run/systemd/nvpcr/$name.auth ]] || fail "invalid-policy-initialized-$name"
+    done
+    echo EFI_AUTOLOAD_INVALID_PCR_POLICY_REJECTED
+else
+    [[ $(property Result systemd-tpm2-setup-early.service) == success ]] || fail tpm-setup-failed
+    udevadm info --query=property --name=/dev/tpmrm0 | grep -qx TPM2_BROKEN_NVPCR=1 || fail tpm-udev-property
+    [[ $status == 69 ]] || fail nvpcr-workaround-not-applied
+fi
+echo EFI_AUTOLOAD_TPM_SRK_PASS
+journalctl -b -u systemd-tpm2-setup-early.service -u systemd-pcrphase-initrd.service --no-pager
+echo "EFI_AUTOLOAD_PASS=$case"

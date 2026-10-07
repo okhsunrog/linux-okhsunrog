@@ -1,0 +1,3 @@
+#!/bin/bash
+set -euo pipefail
+exec /usr/local/sbin/zbm-sign-image "${1:-/mnt/efi/EFI/ZBM/zfsbootmenu.EFI}"

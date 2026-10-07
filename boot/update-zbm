@@ -4,15 +4,16 @@ set -euo pipefail
 exec 8>/run/lock/zbm-update.lock
 flock 8
 /usr/local/sbin/zbm-sign-boot
+/usr/local/sbin/zbm-sign-ima-policy
 generate-zbm -c /etc/zfsbootmenu/staging.yaml
 source_image=/var/lib/zbm-secureboot/staging/zfsbootmenu.EFI
-/usr/local/sbin/zbm-sign-image "$source_image"
 was_mounted=0
 if mountpoint -q /mnt/efi; then was_mounted=1; else mount /mnt/efi; fi
 cleanup() { if ((was_mounted == 0)); then umount /mnt/efi; fi; }
 trap cleanup EXIT
 dest=/mnt/efi/EFI/ZBM/zfsbootmenu.EFI
 [[ $(findmnt -n -o UUID -T /mnt/efi) == 05E8-D496 ]] || exit 1
+/usr/local/sbin/zbm-sign-image "$source_image" "$dest"
 [[ -f $dest ]] && cp "$dest" "${dest%.EFI}-backup.EFI"
 install -m 644 "$source_image" "${dest}.new"
 sbverify --cert /var/lib/sbctl/keys/db/db.pem "${dest}.new"

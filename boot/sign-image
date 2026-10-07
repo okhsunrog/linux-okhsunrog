@@ -1,0 +1,90 @@
+#!/bin/bash
+# Sign a ZBM EFI image and refresh the OS initrd's matching PCR policy.
+set -euo pipefail
+exec 6>/run/lock/zbm-image-sign.lock
+flock 6
+image=${1:-/mnt/efi/EFI/ZBM/zfsbootmenu.EFI}
+previous=${2:-${image%.EFI}-backup.EFI}
+cert=/var/lib/sbctl/keys/db/db.pem
+public=/etc/systemd/tpm2-pcr-public-key.pem
+policy=/etc/systemd/tpm2-pcr-signature.json
+
+if [[ ! -s $public ]]; then
+    sbctl sign "$image"
+    sbverify --cert "$cert" "$image"
+    exit
+fi
+
+private=/var/lib/zbm-secureboot/pcr/pcr.key
+[[ -s $private ]] || { echo 'PCR signing key is missing' >&2; exit 1; }
+[[ -f /etc/dracut.conf.d/pcr-policy.conf ]] || { echo 'PCR initrd integration is missing' >&2; exit 1; }
+backup=$(mktemp -d /var/lib/zbm-secureboot/pcr-update.XXXXXX)
+chmod 700 "$backup"
+kernel=/boot/vmlinuz-linux-okhsunrog
+initramfs=/boot/initramfs-linux-okhsunrog.img
+version=''
+for file in /usr/lib/modules/*/pkgbase; do
+    read -r pkgbase < "$file"
+    if [[ $pkgbase == linux-okhsunrog ]]; then
+        version=$(basename "$(dirname "$file")")
+        break
+    fi
+done
+[[ -n $version ]] || { echo 'Installed kernel not found' >&2; exit 1; }
+files=("$image" "$kernel" "$initramfs" "$kernel.zbm-policy" "$kernel.zbm-policy.sig" "/usr/lib/modules/$version/vmlinuz")
+for index in "${!files[@]}"; do
+    cp --preserve=all "${files[$index]}" "$backup/$index"
+done
+had_policy=0
+if [[ -f $policy ]]; then cp --preserve=all "$policy" "$backup/policy.json"; had_policy=1; fi
+completed=0
+cleanup() {
+    local status=$? index path
+    if ((completed == 0)); then
+        for index in "${!files[@]}"; do
+            path=${files[$index]}
+            cp --preserve=all "$backup/$index" "$path.restore"
+            mv -f "$path.restore" "$path"
+        done
+        if ((had_policy)); then
+            cp --preserve=all "$backup/policy.json" "$policy.restore"
+            mv -f "$policy.restore" "$policy"
+        else
+            rm -f "$policy"
+        fi
+        echo "PCR/image update failed; boot files restored from $backup" >&2
+    fi
+    rm -f "$initramfs.new"
+    exit "$status"
+}
+trap cleanup EXIT
+
+options=()
+if [[ -f $previous ]]; then
+    sbverify --cert "$cert" "$previous"
+    options+=(--sign-existing "$previous")
+fi
+uv run --no-project --offline --python /usr/bin/python \
+    /usr/local/libexec/zbm-pcr-policy.py "$image" "$backup/new.efi" \
+    --private-key "$private" --public-key "$public" --signature "$backup/new-policy.json" \
+    "${options[@]}"
+install -m644 "$backup/new.efi" "$image.new"
+mv -f "$image.new" "$image"
+sbctl sign "$image"
+sbverify --cert "$cert" "$image"
+install -m644 "$backup/new-policy.json" "$policy.new"
+mv -f "$policy.new" "$policy"
+
+# The ZBM UKI doesn't embed the OS initrd. Building it after signing the UKI
+# therefore avoids a circular dependency between its contents and PCR policy.
+dracut --force --no-hostonly-cmdline "$backup/initramfs.img" --kver "$version"
+/usr/local/sbin/zbm-sign-initramfs "$backup/initramfs.img"
+cp --preserve=all "$backup/initramfs.img" "$initramfs.new"
+chmod 600 "$initramfs.new"
+sync -f "$initramfs.new"
+mv -f "$initramfs.new" "$initramfs"
+/usr/local/sbin/zbm-sign-boot
+sync -f "$image"
+sync -f "$initramfs"
+completed=1
+echo "Signed ZBM PCR policy and OS initramfs installed; rollback files: $backup"
