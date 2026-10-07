@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: GPL-2.0-only
+obj-m := insyde_efivarfs.o
+insyde_efivarfs-y := recovery.o bridge.o
