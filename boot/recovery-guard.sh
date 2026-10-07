@@ -1,5 +1,11 @@
 #!/bin/bash
 # Sourced after the original core definitions in a mandatory-verification image.
+zbm_discovery_failure() {
+    printf '%s: %s\n' "$1" "$2" >> "${BASE:-/zfsbootmenu}/discovery-errors"
+}
+zbm_discovery_recovery() {
+    /usr/local/libexec/zbm-deny-preunlock --retry-menu 'No bootable environments found'
+}
 zbm_recovery_authorized() {
     local expected actual status encryption
     IFS= read -r expected < /etc/zbm-recovery-pool-guid || return 1

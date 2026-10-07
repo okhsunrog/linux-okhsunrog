@@ -3,11 +3,91 @@ export PATH=/usr/bin:/usr/sbin:/bin:/sbin
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
+mount -t tmpfs tmpfs /run
+export TERM=linux control_term=/dev/console BASE=/zfsbootmenu
+export loglevel=4 zbm_sort='name;creation;used' BOOTFS=''
 # shellcheck disable=SC1091
 case " $(cat /proc/cmdline) " in
     *' recovery_test=zbm '*) source /lib/zfsbootmenu-core.sh; emergency_shell 'Simulated locked-dataset failure' ;;
     *' recovery_test=dracut '*) source /lib/dracut-lib.sh; _emergency_shell 'Simulated early dracut failure' ;;
     *' recovery_test=source '*) mv /etc/zfsbootmenu.conf /etc/zfsbootmenu.conf.saved; exec /libexec/zfsbootmenu-init ;;
+    *' recovery_test=discovery'* )
+        mode=key
+        [[ " $(cat /proc/cmdline) " != *' recovery_test=discovery-mount '* ]] || mode=mount
+        [[ " $(cat /proc/cmdline) " != *' recovery_test=discovery-pair '* ]] || mode=pair
+        modprobe zfs || exit 1
+        # Entire vdev lives in guest RAM; use no host disks or keys.
+        truncate -s 320M /run/recovery.vdev || exit 1
+        printf 'fixture-passphrase-only\n' > /run/recovery.key
+        zpool create -f -O encryption=aes-256-gcm -O keyformat=passphrase \
+            -O keylocation=file:///run/recovery.key -O mountpoint=none \
+            novafs /run/recovery.vdev || exit 1
+        for item in nixos0 gentoo0 archiso0 arch0; do
+            zfs create -o mountpoint=none "novafs/$item" || exit 1
+            zfs create -o mountpoint=/ -o canmount=noauto \
+                -o "org.zfsbootmenu:keysource=novafs/$item/root" "novafs/$item/root" || exit 1
+        done
+        mkdir -p /run/seed "$BASE"
+        mount -t zfs -o zfsutil novafs/arch0/root /run/seed || exit 1
+        mkdir -p /run/seed/boot
+        if [[ $mode != pair ]]; then
+            : > /run/seed/boot/vmlinuz-linux-fixture
+            : > /run/seed/boot/initramfs-linux-fixture.img
+        fi
+        umount /run/seed
+        zfs set keylocation=file:///etc/zfs/zroot.key novafs
+        zpool export novafs
+        zpool import -N -o readonly=on -d /run novafs || exit 1
+        source /lib/kmsg-log-lib.sh
+        source /lib/zfsbootmenu-core.sh
+        source /lib/zfsbootmenu-ui.sh
+        if [[ $mode == mount ]]; then
+            mkdir -p "$BASE/environments/novafs/arch0/root"
+            : > "$BASE/environments/novafs/arch0/root/mnt"
+        fi
+        echo RECOVERY_DISCOVERY_READY
+        if [[ $mode == key ]]; then
+            # Exercise the actual menu loop. Replace only final rendering in
+            # this disposable guest: there is no real OS kernel in the fixture.
+            cat >> /lib/zfsbootmenu-ui.sh <<'EOF'
+draw_be() {
+    grep -qx novafs/arch0/root "$1" || exit 1
+    ! grep -q 'Key not loaded\|Mount failed' "$BASE/discovery-errors" || exit 1
+    [[ -f /etc/zbm-enforce && -f /etc/zbm-ima-policy ]] || exit 1
+    echo RECOVERY_RETRY_PASS > /dev/console
+    poweroff -f
+}
+EOF
+            : > "$BASE/initialized"
+            exec /bin/zfsbootmenu
+        fi
+        if populate_be_list "$BASE/bootenvs"; then
+            echo RECOVERY_TEST_UNEXPECTED_RETURN
+            poweroff -f
+        fi
+        zbm_discovery_recovery
+        [[ $? == 75 ]] || exit 1
+        if [[ $mode == mount ]]; then
+            rm "$BASE/environments/novafs/arch0/root/mnt"
+        elif [[ $mode == pair ]]; then
+            # Add the missing fixture artifacts on an explicit writable import.
+            zpool export novafs
+            zpool import -N -d /run novafs
+            zfs load-key -L file:///run/recovery.key novafs
+            mount -t zfs -o zfsutil novafs/arch0/root /run/seed
+            : > /run/seed/boot/vmlinuz-linux-fixture
+            : > /run/seed/boot/initramfs-linux-fixture.img
+            umount /run/seed
+            zpool export novafs
+            zpool import -N -o readonly=on -d /run novafs
+        fi
+        populate_be_list "$BASE/bootenvs" || exit 1
+        grep -qx novafs/arch0/root "$BASE/bootenvs" || exit 1
+        ! grep -q 'Key not loaded\|Mount failed' "$BASE/discovery-errors" || exit 1
+        [[ -f /etc/zbm-enforce && -f /etc/zbm-ima-policy ]] || exit 1
+        echo RECOVERY_RETRY_PASS
+        poweroff -f
+        ;;
 esac
 echo RECOVERY_TEST_UNEXPECTED_RETURN
 poweroff -f

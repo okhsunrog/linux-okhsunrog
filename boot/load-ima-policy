@@ -9,6 +9,11 @@ mountpoint -q /sys/kernel/security || mount -t securityfs securityfs /sys/kernel
 # before installing a rule that would otherwise reject every initramfs.
 keyctl padd asymmetric '' %keyring:.ima < /etc/keys/x509_ima.der >/dev/null
 keyctl list %keyring:.ima
-cat /etc/zbm-ima-policy > "$policy"
+# cpio does not retain security.ima. Restore the detached signature before the
+# kernel reads the policy; Secure Boot requires signed POLICY_CHECK input.
+[[ -s /etc/zbm-ima-policy.sig ]] || { echo 'IMA policy signature missing' >&2; exit 1; }
+signature=$(od -An -v -tx1 /etc/zbm-ima-policy.sig | tr -d ' \n')
+setfattr -n security.ima -v "0x$signature" /etc/zbm-ima-policy
+printf '%s\n' /etc/zbm-ima-policy > "$policy"
 # The kernel's policy readback adds whitespace after the final field.
 grep -E '^appraise[[:space:]]+func=KEXEC_INITRAMFS_CHECK[[:space:]]+appraise_type=imasig[[:space:]]*$' "$policy"

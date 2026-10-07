@@ -1,18 +1,34 @@
 #!/bin/bash
 # No startup libraries or evaluated input: this must also handle source failures.
 set -u
+retry_menu=0
+if [[ ${1:-} == --retry-menu ]]; then
+    retry_menu=1
+    shift
+fi
 console=${control_term:-/dev/console}
 exec 0<>"$console"
 exec 1>&0 2>&0
 stty sane 2>/dev/null || true
 printf '\nZBM recovery: automatic shell is disabled.\n%s\n' "${*:-Boot initialization failed}"
 printf 'Use authenticated menu recovery or a trusted rescue medium.\n'
+if ((retry_menu)); then
+    if [[ -f ${BASE:-/zfsbootmenu}/discovery-errors ]]; then
+        cat "${BASE:-/zfsbootmenu}/discovery-errors"
+    fi
+    printf 'Retry repeats discovery and key entry; signature checks remain mandatory.\n'
+fi
 while :; do
-    printf '[R] reboot  [P] power off: '
+    if ((retry_menu)); then
+        printf '[M] retry boot menu  [R] reboot  [P] power off: '
+    else
+        printf '[R] reboot  [P] power off: '
+    fi
     choice=''
     if ! IFS= read -r -n 1 choice; then sleep 1; continue; fi
     printf '\n'
     case "$choice" in
+        m|M) if ((retry_menu)); then exit 75; else continue; fi ;;
         r|R) sync; printf b > /proc/sysrq-trigger ;;
         p|P) sync; printf o > /proc/sysrq-trigger ;;
         *) continue ;;

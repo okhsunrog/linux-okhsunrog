@@ -27,6 +27,28 @@ changes[p] += '\nsource /lib/zbm-recovery-guard.sh || exit 1\n'
 for name in ('usr/bin/zfsbootmenu', 'libexec/zfsbootmenu-init', 'var/lib/dracut/hooks/cmdline/95-zfsbootmenu-parse-commandline.sh'):
     replace(name, 'exec /bin/bash', 'exec /usr/local/libexec/zbm-deny-preunlock "Unable to load startup libraries"')
 replace('usr/bin/zfsbootmenu', '    "mod-r")\n      tput cnorm\n      tput clear\n      break\n      ;;', '    "mod-r")\n      zbm_authenticated_recovery\n      ;;')
+replace('usr/bin/zfsbootmenu', '''      timed_prompt -d 10 \\
+        -m "$( colorize red "No boot environments with kernels found" )" \\
+        -m "$( colorize red "Dropping to an emergency shell to allow recovery attempts" )"
+      tput clear
+      tput cnorm
+      exit 1''', '''      zbm_discovery_recovery
+      if [ "$?" -eq 75 ]; then
+        tput clear
+        tput cnorm
+        continue
+      fi
+      exit 1''')
+replace('lib/zfsbootmenu-ui.sh', '  : > "${be_list}"',
+        '  : > "${be_list}"\n  : > "${BASE}/discovery-errors"')
+replace('lib/zfsbootmenu-ui.sh', '    load_key "${fs}" || continue', '''    if ! load_key "${fs}"; then
+      zbm_discovery_failure "Key not loaded" "${fs}"
+      continue
+    fi''')
+replace('lib/zfsbootmenu-core.sh', '    zerror "unable to mount ${fs}"',
+        '    zerror "unable to mount ${fs}"\n    zbm_discovery_failure "Mount failed" "${fs}"')
+replace('lib/zfsbootmenu-core.sh', '  zerror "failed to find kernels on ${fs}"',
+        '  zerror "failed to find kernels on ${fs}"\n  zbm_discovery_failure "No matching kernel/initramfs pair" "${fs}"')
 # The dracut path is independent of ZBM core functions.
 replace('lib/dracut-lib.sh', '\n_emergency_shell() {', '\n_zbm_disabled_dracut_shell() {')
 p = path('lib/dracut-lib.sh')

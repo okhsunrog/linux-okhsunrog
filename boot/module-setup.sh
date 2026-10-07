@@ -28,9 +28,13 @@ install() {
         # Do not enable the policy in an image whose kernel lacks the capability.
         # shellcheck disable=SC2154
         grep -qx CONFIG_IMA_LOAD_X509=y "/usr/lib/modules/$kernel/build/.config" || exit 1
-        inst_multiple keyctl grep mountpoint reboot || exit 1
+        inst_multiple keyctl grep mountpoint od tr || exit 1
+        # Use attr's actual xattr implementation, not a BusyBox applet.
+        inst_binary /usr/bin/setfattr || exit 1
         inst_simple /etc/zfsbootmenu/ima.der /etc/keys/x509_ima.der || exit 1
         inst_simple /etc/zfsbootmenu/ima-policy /etc/zbm-ima-policy || exit 1
+        inst_simple /etc/zfsbootmenu/ima-policy.sig /etc/zbm-ima-policy.sig || exit 1
+        inst_simple /usr/local/libexec/zbm-deny-preunlock || exit 1
         inst_simple /usr/local/libexec/zbm-load-ima-policy || exit 1
         inst_hook pre-udev 05 /usr/local/libexec/zbm-ima-pre-udev.sh || exit 1
     fi

@@ -1,0 +1,11 @@
+#!/bin/bash
+# Sign public policy bytes locally; never put the private key in the image.
+set -euo pipefail
+policy=/etc/zfsbootmenu/ima-policy
+export LD_LIBRARY_PATH=/usr/local/libexec/zbm-ima-tools
+evmctl=/usr/local/libexec/zbm-ima-tools/evmctl
+key=/var/lib/zbm-secureboot/ima/ima.key
+cert=/var/lib/zbm-secureboot/ima/ima.pem
+"$evmctl" -a sha256 -k "$key" --keyid-from-cert "$cert" --sigfile ima_sign "$policy"
+"$evmctl" -k /etc/zfsbootmenu/ima.der ima_verify "$policy"
+chmod 644 "$policy.sig"
