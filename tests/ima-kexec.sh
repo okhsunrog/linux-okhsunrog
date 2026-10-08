@@ -9,7 +9,8 @@ done
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 root=$work/root
-mkdir -p "$root"/{bin,proc,sys,dev,run,etc/keys,fixtures,usr/local/libexec}
+mkdir -p "$root"/{bin,proc,sys,dev,run,tmp,etc/keys,fixtures,usr/local/libexec}
+chmod 1777 "$root/tmp"
 copy_binary() {
     local binary=$1 lib
     install -Dm755 "$binary" "$root/bin/$(basename "$binary")"
@@ -27,6 +28,8 @@ copy_binary "$(command -v kexec)"
 copy_binary "$(command -v keyctl)"
 copy_binary "$(command -v setfattr)"
 copy_binary "$(command -v getfattr)"
+copy_binary "$(command -v od)"
+copy_binary "$(command -v tr)"
 for app in sh mount mountpoint cat dd poweroff sleep grep dmesg cut mkdir rm rmdir; do ln -s busybox "$root/bin/$app"; done
 install -m755 "$repo/tests/ima-guest-init" "$root/init"
 install -m644 "$repo/boot/ima-policy" "$root/etc/zbm-ima-policy"
@@ -41,6 +44,12 @@ awk '/-----BEGIN CERTIFICATE-----/{n++} n==3 {print} /-----END CERTIFICATE-----/
     "$repo/secureboot-trusted.pem" > "$work/owner-ima.pem"
 openssl x509 -in "$work/owner-ima.pem" -outform DER -out "$root/fixtures/owner-ima.der"
 openssl x509 -inform DER -in "$source_dir/certs/signing_key.x509" -out "$work/build.pem"
+# Match the production loader: it restores a detached policy signature from
+# cpio, then submits the signed policy's absolute pathname to securityfs.
+# Use only this build's ephemeral signing key, never an owner private key.
+"$evmctl" -a sha256 -k "$source_dir/certs/signing_key.pem" \
+    --keyid-from-cert "$work/build.pem" --sigfile ima_sign "$root/etc/zbm-ima-policy"
+test -s "$root/etc/zbm-ima-policy.sig"
 sbsign --key "$source_dir/certs/signing_key.pem" --cert "$work/build.pem" \
     --output "$work/kernel" "$source_dir/arch/x86/boot/bzImage"
 # The second-stage archive contains no private key and uses the same simple init.
@@ -85,7 +94,7 @@ cat "$work/console.log"
 install -m644 "$work/console.log" "$diagnostics/console.log"
 [[ $status == 0 ]] || { echo "QEMU failed or timed out: $status" >&2; exit 1; }
 if grep -q IMA_TEST_FAIL "$work/console.log"; then exit 1; fi
-for marker in OWNER_KEYS_TRUSTED REJECTED_unsigned REJECTED_tampered REJECTED_wrong-key LEGACY_KEXEC_REJECTED LEGACY_SYSCALL_REJECTED CMDLINE_REJECTED MISSING_INITRAMFS_REJECTED VALID_LOAD SECOND_KERNEL_BOOTED; do
+for marker in OWNER_KEYS_TRUSTED POLICY_LOADED NATIVE_REJECTED_unsigned NATIVE_REJECTED_tampered NATIVE_REJECTED_wrong-key REJECTED_unsigned REJECTED_tampered REJECTED_wrong-key LEGACY_KEXEC_REJECTED LEGACY_SYSCALL_REJECTED CMDLINE_REJECTED MISSING_INITRAMFS_REJECTED VALID_LOAD SECOND_KERNEL_BOOTED; do
     grep -q "IMA_TEST_$marker" "$work/console.log" || { echo "Missing marker: $marker" >&2; exit 1; }
 done
 echo 'IMA guest tests passed'

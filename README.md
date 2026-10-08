@@ -128,10 +128,13 @@ the key or policy cannot be initialized.
 
 CI builds a pinned upstream evmctl and runs `tests/ima-xattr.sh`, then boots the
 new kernel in QEMU. The guest uses `boot/load-ima-policy` to verify certificate
-acceptance and the kernel's policy readback before testing kexec.
-`tests/ima-kexec.sh` checks that unsigned, modified and
-wrong-key initramfs files are rejected, that legacy kexec is blocked under
-lockdown, and that a signed initramfs boots a second kernel. Test keys are
+acceptance and the kernel's policy readback before testing kexec. The fixture
+includes the policy's detached IMA signature, generated with the build's ephemeral
+key, plus the `od`/`tr` helpers and `/tmp` needed by the production policy/manifest
+loaders. `tests/ima-kexec.sh` checks unsigned, modified and wrong-key initramfs
+through both native `kexec_file_load` and the manifest wrapper, checks legacy
+kexec refusal under lockdown, and requires a signed initramfs to boot a second
+kernel. A wrapper/setup failure alone is not counted as proof of kernel appraisal. Test keys are
 ephemeral; no private key is placed in the guest initramfs or package artifacts.
 Artifacts are uploaded only after these tests pass.
 

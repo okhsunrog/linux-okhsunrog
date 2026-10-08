@@ -33,6 +33,15 @@ echo "IMA_TEST_SIGNATURE_LENGTH: ${#signature}"
 printf X | dd of=/run/tampered bs=1 seek=10 conv=notrunc
 /bin/setfattr -n security.ima -v "$(cat /fixtures/wrong.hex)" /run/wrong-key || fail 'label wrong key'
 /usr/local/libexec/zbm-load-ima-policy || fail 'policy load'
+echo IMA_TEST_POLICY_LOADED
+# Check kernel appraisal directly as well as the signed manifest wrapper. A
+# wrapper/setup failure alone must not masquerade as an IMA rejection.
+for kind in unsigned tampered wrong-key; do
+    if /usr/local/libexec/zbm-kexec-real -s -l /kernel --initrd="/run/$kind" --command-line='root=ZFS=novafs/test console=ttyS0 ima_test=second'; then
+        fail "kernel accepted $kind initramfs"
+    fi
+    echo "IMA_TEST_NATIVE_REJECTED_$kind"
+done
 for kind in unsigned tampered wrong-key; do
     if /bin/kexec -a -l /kernel --initrd="/run/$kind" --command-line='root=ZFS=novafs/test console=ttyS0 ima_test=second'; then
         fail "$kind initramfs unexpectedly accepted"
